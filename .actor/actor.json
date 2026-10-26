@@ -1,0 +1,56 @@
+{
+    "actorSpecification": 1,
+    "name": "global-freelance-lead-radar",
+    "title": "Global Freelance & B2B Lead Radar",
+    "description": "Finds real clients who are hiring freelancers right now on Reddit, Hacker News and remote job boards. AI scores each lead and writes a ready-to-send pitch.",
+    "version": "1.0",
+    "buildTag": "latest",
+    "dockerfile": "../Dockerfile",
+    "readme": "../APIFY_STORE_README.md",
+    "input": "./input_schema.json",
+    "minMemoryMbytes": 256,
+    "maxMemoryMbytes": 1024,
+    "environmentVariables": {
+        "EXECUTION_MODE": "APIFY_ACTOR"
+    },
+    "storages": {
+        "dataset": {
+            "actorSpecification": 1,
+            "title": "Qualified freelance leads",
+            "views": {
+                "leads": {
+                    "title": "Leads",
+                    "transformation": {
+                        "fields": [
+                            "qualityScore",
+                            "category",
+                            "title",
+                            "estimatedBudget",
+                            "clientPainPoint",
+                            "summary",
+                            "winningPitch",
+                            "url",
+                            "source",
+                            "postedAt"
+                        ]
+                    },
+                    "display": {
+                        "component": "table",
+                        "properties": {
+                            "qualityScore": { "label": "Score", "format": "number" },
+                            "category": { "label": "Category", "format": "text" },
+                            "title": { "label": "Title", "format": "text" },
+                            "estimatedBudget": { "label": "Budget", "format": "text" },
+                            "clientPainPoint": { "label": "Client pain point", "format": "text" },
+                            "summary": { "label": "What they need", "format": "text" },
+                            "winningPitch": { "label": "Ready-to-send pitch", "format": "text" },
+                            "url": { "label": "Apply link", "format": "link" },
+                            "source": { "label": "Source", "format": "text" },
+                            "postedAt": { "label": "Posted", "format": "date" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

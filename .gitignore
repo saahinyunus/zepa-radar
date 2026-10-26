@@ -1,0 +1,39 @@
+# --- Secrets (never commit) ---
+.env
+.env.*
+!.env.example
+
+# --- Local databases / state ---
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Apify local storage ---
+storage/
+apify_storage/
+
+# --- Logs / OS / editor ---
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# --- Private planning notes (keep out of the public repo) ---
+claude_master_prompt_global_freelance_radar.md

@@ -1,0 +1,82 @@
+{
+    "title": "Global Freelance & B2B Lead Radar",
+    "description": "Choose which kinds of client opportunities to find. The Actor scans Reddit, Hacker News and remote job boards, scores every post with AI and returns only real clients who are hiring.",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "categories": {
+            "title": "Categories",
+            "type": "array",
+            "description": "Which types of freelance work you want leads for.",
+            "editor": "select",
+            "items": {
+                "type": "string",
+                "enum": ["SOFTWARE", "DESIGN", "VIDEO", "MARKETING_WRITING"],
+                "enumTitles": [
+                    "Software, Web, Mobile, AI & Automation",
+                    "Graphic Design, UI/UX, Logo, Thumbnail, 3D",
+                    "Video Editing, Shorts/Reels, Motion Graphics, VFX",
+                    "Copywriting, SEO, Social Media, Growth"
+                ]
+            },
+            "default": ["SOFTWARE", "DESIGN", "VIDEO", "MARKETING_WRITING"],
+            "prefill": ["SOFTWARE", "DESIGN", "VIDEO", "MARKETING_WRITING"]
+        },
+        "min_quality_score": {
+            "title": "Minimum quality score",
+            "type": "integer",
+            "description": "AI quality score from 0 to 100. Higher means a clearer scope, a stated budget and a credible client. 70 and above is recommended.",
+            "editor": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "default": 70,
+            "prefill": 70
+        },
+        "max_items": {
+            "title": "Maximum number of leads",
+            "type": "integer",
+            "description": "The run stops once this many qualified leads have been delivered. You are only charged for delivered leads.",
+            "editor": "number",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50,
+            "prefill": 50
+        },
+        "custom_keywords": {
+            "title": "Custom keywords (optional)",
+            "type": "array",
+            "description": "Only keep posts that mention at least one of these words or phrases, for example: shopify, react native, youtube shorts.",
+            "editor": "stringList",
+            "default": [],
+            "prefill": []
+        },
+        "max_age_hours": {
+            "title": "Look back (hours)",
+            "type": "integer",
+            "description": "Only consider posts published within this many hours.",
+            "editor": "number",
+            "minimum": 1,
+            "maximum": 168,
+            "default": 24,
+            "prefill": 24
+        },
+        "sources": {
+            "title": "Sources",
+            "type": "array",
+            "description": "Which networks to scan.",
+            "editor": "select",
+            "items": {
+                "type": "string",
+                "enum": ["reddit", "hackernews", "jobboards"],
+                "enumTitles": [
+                    "Reddit (hiring and founder communities)",
+                    "Hacker News",
+                    "Remote job boards (RemoteOK, Remotive, Jobicy, Arbeitnow, We Work Remotely)"
+                ]
+            },
+            "default": ["reddit", "hackernews", "jobboards"],
+            "prefill": ["reddit", "hackernews", "jobboards"]
+        }
+    },
+    "required": []
+}
