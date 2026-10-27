@@ -145,7 +145,8 @@ FREE_CHANNEL_ENABLED = _env_str("FREE_CHANNEL_ENABLED", "true").lower() not in {
 VIP_RETRY_MAX_AGE_HOURS = 3.0
 
 # Only leads posted within this window are analysed (cron runs every 20 min).
-LEAD_MAX_AGE_MINUTES = _env_int("LEAD_MAX_AGE_MINUTES", 90)
+# GitHub delays scheduled runs (often 35-45 min apart in practice), so keep a wide window.
+LEAD_MAX_AGE_MINUTES = _env_int("LEAD_MAX_AGE_MINUTES", 150)
 # Groq free tier guard: hard cap on LLM calls in a single run.
 MAX_AI_CALLS_PER_RUN = _env_int("MAX_AI_CALLS_PER_RUN", 40)
 GROQ_CONCURRENCY = max(1, _env_int("GROQ_CONCURRENCY", 3))
@@ -253,12 +254,10 @@ REDDIT_USER_AGENT = _env_str(
     "python:global-freelance-radar:v1.0 (lead discovery bot)",
 )
 
-# Reddit throttles aggressively, so the scheduled run only fetches a few groups per
-# cycle and rotates through all of them. With 4 groups, 2 per run and a 20-minute
-# cron, every group is visited every ~40 minutes (inside LEAD_MAX_AGE_MINUTES).
-# 0 = fetch every group on every run.
-REDDIT_GROUPS_PER_RUN = max(0, _env_int("REDDIT_GROUPS_PER_RUN", 2))
-REDDIT_ROTATION_SECONDS = 20 * 60
+# Reddit throttles aggressively, so a scheduled run fetches only a random subset of the
+# groups. (A time-based rotation can alias with GitHub's irregular cron timing and starve
+# the same groups, so the choice is random.) 0 = fetch every group on every run.
+REDDIT_GROUPS_PER_RUN = max(0, _env_int("REDDIT_GROUPS_PER_RUN", 3))
 
 REDDIT_SUBREDDIT_GROUPS: dict[str, tuple[str, ...]] = {
     # Group 1 - direct job postings

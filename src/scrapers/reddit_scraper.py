@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
+import random
 import xml.etree.ElementTree as ET
 from typing import Any
 
@@ -55,7 +55,7 @@ class RedditScraper(BaseScraper):
     def __init__(self, *args: Any, rotate: bool = False, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         # With rotate=True only `REDDIT_GROUPS_PER_RUN` groups are fetched per run,
-        # advancing every REDDIT_ROTATION_SECONDS (keeps Reddit's 429s away).
+        # chosen at random (keeps Reddit's 429s away).
         self.rotate = rotate
         # Set once the JSON endpoints answer 403 (typical for datacenter IPs);
         # the remaining groups then go straight to the RSS feed.
@@ -66,9 +66,8 @@ class RedditScraper(BaseScraper):
         per_run = config.REDDIT_GROUPS_PER_RUN
         if not self.rotate or per_run <= 0 or per_run >= len(groups):
             return groups
-        slot = int(time.time() // config.REDDIT_ROTATION_SECONDS)
-        start = (slot * per_run) % len(groups)
-        return [groups[(start + offset) % len(groups)] for offset in range(per_run)]
+        chosen = set(random.sample(range(len(groups)), per_run))
+        return [group for index, group in enumerate(groups) if index in chosen]
 
     async def _scrape(self) -> list[RawLead]:
         leads: list[RawLead] = []
