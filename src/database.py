@@ -317,7 +317,7 @@ class SQLiteDatabase(BaseDatabase):
             rows = conn.execute(
                 "SELECT * FROM processed_leads "
                 "WHERE quality_score >= ? AND sent_to_vip = 0 AND created_at >= ? "
-                "ORDER BY created_at ASC LIMIT ?",
+                "ORDER BY quality_score DESC, created_at ASC LIMIT ?",
                 (config.VIP_MIN_SCORE, oldest, limit),
             ).fetchall()
             return [AnalyzedLead.from_db_row(dict(row)) for row in rows]
@@ -582,7 +582,7 @@ class SupabaseDatabase(BaseDatabase):
                 "quality_score": f"gte.{config.VIP_MIN_SCORE}",
                 "sent_to_vip": "eq.0",
                 "created_at": f"gte.{oldest}",
-                "order": "created_at.asc",
+                "order": "quality_score.desc,created_at.asc",
                 "limit": str(limit),
             },
         )

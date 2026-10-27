@@ -28,7 +28,6 @@ logger = logging.getLogger("radar")
 
 # AI always gets at least this long after scraping, even if scraping was slow.
 MIN_AI_WINDOW_SECONDS = 10.0
-VIP_BATCH_LIMIT = 20
 FREE_BATCH_LIMIT = 20
 # Old rows are purged once per hour (during the first 20 minutes) to save API calls.
 CLEANUP_MINUTE_WINDOW = 20
@@ -105,7 +104,7 @@ async def run_cycle(
 
     # 5. VIP: new leads plus any earlier lead whose delivery failed
     try:
-        pending = await db.get_pending_vip_leads(limit=VIP_BATCH_LIMIT)
+        pending = await db.get_pending_vip_leads(limit=config.VIP_MAX_PER_RUN)
         stats.vip_candidates = len(pending)
         if pending:
             stats.vip_sent = await notifier.send_vip_leads(pending, db)

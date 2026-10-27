@@ -17,6 +17,14 @@ logger = logging.getLogger(__name__)
 
 PROJECT_URL_TEMPLATE = "https://www.freelancer.com/projects/{seo_url}"
 BODY_MAX_CHARS = 4000
+# Freelancer skill tags that mark work outside our categories (matched case-insensitively).
+OFF_TOPIC_SKILLS = frozenset(
+    {
+        "architecture", "autocad", "cad/cam", "civil engineering", "mechanical engineering",
+        "electrical engineering", "structural engineering", "interior design", "building architecture",
+        "revit", "solidworks", "3d modelling for engineering", "hvac", "drafting", "construction monitoring",
+    }
+)
 
 
 def _usd(amount: Any, rate: Any) -> float:
@@ -89,6 +97,8 @@ class FreelancerScraper(BaseScraper):
         job_names = [
             str(job.get("name")) for job in project.get("jobs") or [] if isinstance(job, dict) and job.get("name")
         ]
+        if any(name.lower() in OFF_TOPIC_SKILLS for name in job_names):
+            return None  # architecture / engineering / CAD work that merely mentions "design"
         category = guess_category(f"{title} {' '.join(job_names)}")
         if category is None:
             return None  # data entry, translation, etc. - not one of our categories

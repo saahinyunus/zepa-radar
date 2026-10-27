@@ -139,6 +139,8 @@ LEMON_SQUEEZY_CHECKOUT_URL = _env_str("LEMON_SQUEEZY_CHECKOUT_URL")
 # Runtime tuning
 # ---------------------------------------------------------------------------
 VIP_MIN_SCORE = _env_int("VIP_MIN_SCORE", 70)
+# Best-scoring leads go first; the rest wait for the next run (they stay eligible for VIP_RETRY_MAX_AGE_HOURS).
+VIP_MAX_PER_RUN = _env_int("VIP_MAX_PER_RUN", 6)
 FREE_DELAY_HOURS = _env_float("FREE_DELAY_HOURS", 4.0)
 # Set FREE_CHANNEL_ENABLED=false to pause the delayed Free-channel teasers (e.g. until the
 # live checkout link exists). VIP delivery is not affected.
