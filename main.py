@@ -112,13 +112,16 @@ async def run_cycle(
         logger.exception("VIP delivery phase failed")
 
     # 6. Free channel teasers for leads older than FREE_DELAY_HOURS
-    try:
-        due = await db.get_due_free_leads(limit=FREE_BATCH_LIMIT)
-        if due:
-            stats.free_sent = await notifier.send_free_leads(due, db)
-    except Exception:  # noqa: BLE001
-        stats.errors += 1
-        logger.exception("Free channel phase failed")
+    if config.FREE_CHANNEL_ENABLED:
+        try:
+            due = await db.get_due_free_leads(limit=FREE_BATCH_LIMIT)
+            if due:
+                stats.free_sent = await notifier.send_free_leads(due, db)
+        except Exception:  # noqa: BLE001
+            stats.errors += 1
+            logger.exception("Free channel phase failed")
+    else:
+        logger.info("Free channel delivery is paused (FREE_CHANNEL_ENABLED=false)")
 
     # 7. housekeeping
     if utc_now().minute < CLEANUP_MINUTE_WINDOW:
