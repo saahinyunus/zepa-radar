@@ -22,7 +22,7 @@ Sıra önemli: 1 → 2 → 3 → 4 → önce yerelde deneme → 5 → 6 → 7.
 
 1. `console.groq.com/keys` → ücretsiz **`GROQ_API_KEY`** oluştur.
 2. `console.groq.com/settings/limits` sayfasında ücretsiz katman limitlerini (özellikle günlük token) kontrol et.
-3. Sistem iki aşamalı çalışır: küçük model (`openai/gpt-oss-20b`) ilanı eler, `openai/gpt-oss-120b` yalnızca elemeyi geçenleri puanlayıp pitch yazar. Kota yetmezse `MAX_AI_CALLS_PER_RUN` değerini düşür.
+3. Sistem iki aşamalı çalışır: küçük model (`openai/gpt-oss-20b`) ilanı eler, `openai/gpt-oss-120b` yalnızca elemeyi geçenlerin özetini ve olgularını çıkarır (puanı `src/scoring.py` hesaplar). Kota yetmezse `MAX_AI_CALLS_PER_RUN` değerini düşür.
 
 ## 3. Supabase (5 dk)
 

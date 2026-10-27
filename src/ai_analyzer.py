@@ -28,7 +28,7 @@ from src.scoring import score_lead
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """\
+_PROMPT_TEMPLATE = """\
 You are the lead-qualification engine of a freelance opportunity radar. You read ONE \
 post or job listing and decide whether it is a real client looking to pay an \
 independent freelancer or small agency for work, how good the opportunity is, and \
@@ -70,7 +70,7 @@ Field rules:
 - "estimated_budget": copy the stated budget or rate (e.g. "$500 - $1,000 (Fixed)", "$35/hr"). If none is stated, give a short realistic estimate ending with "(est.)" only when the scope makes that possible; otherwise write exactly "Not specified".
 - "client_pain_point": ONE English sentence naming the problem the client wants solved.
 - "summary_en": exactly 2 English sentences covering scope, required skills and timeline.
-- "winning_pitch_en": a 3-4 sentence English message the freelancer can send by DM or e-mail. It must start with "Hi there, I saw your post about" followed by a specific detail from the post, sound human (not robotic), propose a concrete first step or solution, and end with a short question or call to action. Do not use placeholders in brackets, and do not invent credentials, past clients, portfolio items or numbers. Do not promise fees, deliverables, revision rounds or turnaround times that the post does not mention; offer a first step or ask a question instead. Use an empty string when is_actual_client_hiring is false.
+@@PITCH_RULE@@
 - All text fields are written in English, whatever the language of the post.
 
 Reply with ONE JSON object and nothing else, with exactly these keys:
@@ -82,9 +82,20 @@ Reply with ONE JSON object and nothing else, with exactly these keys:
   "red_flags": [],
   "estimated_budget": "",
   "client_pain_point": "",
-  "summary_en": "",
-  "winning_pitch_en": ""
+  "summary_en": ""@@PITCH_KEY@@
 }"""
+
+PITCH_RULE = '- "winning_pitch_en": a 3-4 sentence English message the freelancer can send by DM or e-mail. It must start with "Hi there, I saw your post about" followed by a specific detail from the post, sound human (not robotic), propose a concrete first step or solution, and end with a short question or call to action. Do not use placeholders in brackets, and do not invent credentials, past clients, portfolio items or numbers. Do not promise fees, deliverables, revision rounds or turnaround times that the post does not mention; offer a first step or ask a question instead. Use an empty string when is_actual_client_hiring is false.'
+PITCH_KEY = ',\n  "winning_pitch_en": ""'
+
+
+def build_system_prompt(with_pitch: bool) -> str:
+    """Lead-analysis prompt; the ready-to-send pitch is only requested when `with_pitch` is set."""
+    prompt = _PROMPT_TEMPLATE.replace("@@PITCH_RULE@@\n", PITCH_RULE + "\n" if with_pitch else "")
+    return prompt.replace("@@PITCH_KEY@@", PITCH_KEY if with_pitch else "")
+
+
+SYSTEM_PROMPT = build_system_prompt(config.GENERATE_PITCH)
 
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 
@@ -208,8 +219,10 @@ class AIAnalyzer:
         triage_model: str | None = None,
         max_calls: int | None = None,
         concurrency: int | None = None,
+        with_pitch: bool | None = None,
     ) -> None:
         self._client = client
+        self._system_prompt = SYSTEM_PROMPT if with_pitch is None else build_system_prompt(with_pitch)
         self._owns_client = client is None
         self._api_key = config.GROQ_API_KEY if api_key is None else api_key
 
@@ -289,7 +302,7 @@ class AIAnalyzer:
                 return candidate
 
         data = await self._chat(
-            self._full, SYSTEM_PROMPT, build_user_prompt(raw), config.GROQ_MAX_OUTPUT_TOKENS, 800
+            self._full, self._system_prompt, build_user_prompt(raw), config.GROQ_MAX_OUTPUT_TOKENS, 800
         )
         if data is None:
             self.failures += 1

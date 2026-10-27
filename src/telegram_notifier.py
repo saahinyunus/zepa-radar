@@ -22,7 +22,7 @@ from src.models import AnalyzedLead
 logger = logging.getLogger(__name__)
 
 VIP_BUTTON_TEXT = "🔗 Open Post & Apply Now (Direct Link)"
-FREE_BUTTON_TEXT = "🚀 Get Instant Alerts & AI Pitches ($19/mo)"
+FREE_BUTTON_TEXT = "🚀 Get Instant Client Alerts ($19/mo)"
 
 
 def _esc(value: Any) -> str:
@@ -46,18 +46,16 @@ def _hours_label(hours: float) -> str:
 def format_vip_message(lead: AnalyzedLead) -> str:
     """HTML message for the VIP topic. Shrinks long fields until it fits Telegram's limit."""
     category = config.CATEGORY_DISPLAY_NAMES.get(lead.category, lead.category)
-    limits = (700, 300, 1200)
+    limits = (700, 300)
     message = ""
     for scale in (1.0, 0.7, 0.45, 0.25):
-        summary_max, pain_max, pitch_max = (int(limit * scale) for limit in limits)
+        summary_max, pain_max = (int(limit * scale) for limit in limits)
         message = (
             f"🔥 <b>NEW {_esc(category)} OPPORTUNITY</b> (Score: {lead.quality_score}/100)\n\n"
             f"💰 <b>Budget:</b> {_esc(lead.estimated_budget or 'Not specified')} | "
             f"🌐 <b>Source:</b> {_esc(lead.source)}\n\n"
             f"📋 <b>What They Need:</b>\n{_esc(_clip(lead.summary_en, summary_max))}\n\n"
-            f"🎯 <b>Key Pain Point:</b> {_esc(_clip(lead.client_pain_point, pain_max))}\n\n"
-            f"💬 <b>1-Click Copy Winning Pitch:</b>\n"
-            f"<pre>{_esc(_clip(lead.winning_pitch_en, pitch_max))}</pre>"
+            f"🎯 <b>Key Pain Point:</b> {_esc(_clip(lead.client_pain_point, pain_max))}"
         )
         if len(message) <= config.TELEGRAM_MAX_MESSAGE_CHARS:
             break
@@ -65,14 +63,14 @@ def format_vip_message(lead: AnalyzedLead) -> str:
 
 
 def format_free_message(lead: AnalyzedLead) -> str:
-    """HTML teaser for the Free channel (no link, no pitch)."""
+    """HTML teaser for the Free channel (no link to the client's post)."""
     category = config.CATEGORY_DISPLAY_NAMES.get(lead.category, lead.category)
     hours = _hours_label(config.FREE_DELAY_HOURS)
     return (
         f"⏳ <b>[{hours} HOURS AGO] {_esc(category)} Lead Captured by VIP Radar</b>\n\n"
         f"{_esc(_clip(lead.summary_en, 700))}\n"
         f"💰 Budget: {_esc(lead.estimated_budget or 'Not specified')}\n\n"
-        f"🔒 <i>Direct client link &amp; AI winning pitch were delivered to VIP members "
+        f"🔒 <i>The direct client link was delivered to VIP members "
         f"{hours} hours ago. Don't miss the next client!</i>"
     )
 

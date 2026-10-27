@@ -113,7 +113,8 @@ async def run_scan(options: ActorInput, actor: ActorLike, analyzer: AIAnalyzer |
 
     own_analyzer = analyzer is None
     if analyzer is None:
-        analyzer = AIAnalyzer(max_calls=min(max(options.max_items * 4, 40), 400))
+        # Each Apify user sends their own applications, so the ready-made pitch stays on here.
+        analyzer = AIAnalyzer(max_calls=min(max(options.max_items * 4, 40), 400), with_pitch=True)
 
     delivered = 0
     stop_reason = ""

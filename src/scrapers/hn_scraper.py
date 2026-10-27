@@ -14,7 +14,13 @@ logger = logging.getLogger(__name__)
 
 TITLE_MAX_CHARS = 140
 # Threads where people advertise themselves instead of hiring.
-SELF_PROMO_THREAD_MARKERS = ("wants to be hired", "seeking work", "seeking freelancer")
+SELF_PROMO_THREAD_MARKERS = ("wants to be hired",)
+# "Freelancer? Seeking freelancer?" mixes both sides: comments open with "SEEKING FREELANCER"
+# (a client, keep) or "SEEKING WORK" (a freelancer advertising, drop).
+SELF_PROMO_COMMENT_STARTS = ("seeking work", "available for hire", "for hire")
+# Comments are only hiring posts inside these monthly threads; elsewhere a "looking for" search
+# hit is ordinary conversation. Stories (e.g. "Ask HN: ... hiring") are kept and judged by the LLM.
+HIRING_THREAD_MARKERS = ("who is hiring", "who's hiring", "seeking freelancer", "freelancer?")
 
 
 class HackerNewsScraper(BaseScraper):
@@ -63,10 +69,14 @@ class HackerNewsScraper(BaseScraper):
             return None
 
         if is_comment:
+            if not any(marker in thread_title.lower() for marker in HIRING_THREAD_MARKERS):
+                return None
             text = html_to_text(hit.get("comment_text"))
             if not text:
                 return None
             first_line = text.splitlines()[0].strip()
+            if first_line.lower().lstrip("*#- ").startswith(SELF_PROMO_COMMENT_STARTS):
+                return None
             title = first_line[:TITLE_MAX_CHARS].rstrip()
             body = f"{text}\n\n(Thread: {thread_title})" if thread_title else text
         else:

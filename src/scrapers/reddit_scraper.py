@@ -17,7 +17,10 @@ ATOM_NS = "{http://www.w3.org/2005/Atom}"
 REDDIT_BASE_URL = "https://www.reddit.com"
 # Reddit sometimes blocks datacenter IPs on www; old.reddit.com is a second chance.
 FALLBACK_HOST = "https://old.reddit.com"
-PAUSE_BETWEEN_GROUPS_SECONDS = 1.0
+# Reddit answers rapid RSS requests with 429, so groups are spaced out and a failed group gets
+# one more try after a longer pause.
+PAUSE_BETWEEN_GROUPS_SECONDS = 6.0
+RETRY_FAILED_GROUP_AFTER_SECONDS = 20.0
 
 SUBREDDIT_CATEGORY_HINTS = {
     "designjobs": config.CATEGORY_DESIGN,
@@ -66,8 +69,12 @@ class RedditScraper(BaseScraper):
         per_run = config.REDDIT_GROUPS_PER_RUN
         if not self.rotate or per_run <= 0 or per_run >= len(groups):
             return groups
-        chosen = set(random.sample(range(len(groups)), per_run))
-        return [group for index, group in enumerate(groups) if index in chosen]
+        # The hiring-board group is where real client posts are, so it is fetched on every run;
+        # the discussion-heavy groups share the remaining slots at random.
+        fixed = [group for group in groups if group[0] in config.REDDIT_ALWAYS_GROUPS]
+        rest = [group for group in groups if group[0] not in config.REDDIT_ALWAYS_GROUPS]
+        slots = max(0, per_run - len(fixed))
+        return fixed + random.sample(rest, min(slots, len(rest)))
 
     async def _scrape(self) -> list[RawLead]:
         leads: list[RawLead] = []
@@ -75,18 +82,35 @@ class RedditScraper(BaseScraper):
 
         selected = self._select_groups()
         logger.info("[reddit] fetching group(s): %s", ", ".join(name for name, _ in selected))
+        failed: list[tuple[str, str]] = []
         for index, (group_name, group) in enumerate(selected):
             if index > 0:
                 await asyncio.sleep(PAUSE_BETWEEN_GROUPS_SECONDS)
             group_leads = await self._fetch_group(group)
             if group_leads is None:
-                logger.warning("[reddit] group '%s' unavailable, skipping", group_name)
+                failed.append((group_name, group))
                 continue
-            for lead in group_leads:
-                if lead.item_id not in seen:
-                    seen.add(lead.item_id)
-                    leads.append(lead)
+            self._collect(group_leads, leads, seen)
+
+        if failed:
+            await asyncio.sleep(RETRY_FAILED_GROUP_AFTER_SECONDS)
+            for index, (group_name, group) in enumerate(failed):
+                if index > 0:
+                    await asyncio.sleep(PAUSE_BETWEEN_GROUPS_SECONDS)
+                group_leads = await self._fetch_group(group)
+                if group_leads is None:
+                    logger.warning("[reddit] group '%s' unavailable, skipping", group_name)
+                    continue
+                logger.info("[reddit] group '%s' succeeded on the second try", group_name)
+                self._collect(group_leads, leads, seen)
         return leads
+
+    @staticmethod
+    def _collect(group_leads: list[RawLead], leads: list[RawLead], seen: set[str]) -> None:
+        for lead in group_leads:
+            if lead.item_id not in seen:
+                seen.add(lead.item_id)
+                leads.append(lead)
 
     async def _fetch_group(self, group: str) -> list[RawLead] | None:
         """JSON first (spec), then old.reddit.com JSON, then the RSS/Atom feed."""

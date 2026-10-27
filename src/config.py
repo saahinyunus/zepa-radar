@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import os
 import random
+import re
 
 from dotenv import load_dotenv
 
@@ -140,6 +141,8 @@ LEMON_SQUEEZY_CHECKOUT_URL = _env_str("LEMON_SQUEEZY_CHECKOUT_URL")
 # ---------------------------------------------------------------------------
 # Runtime tuning
 # ---------------------------------------------------------------------------
+# A ready-made pitch would reach every VIP member verbatim, so the Telegram product leaves it off.
+GENERATE_PITCH = os.getenv("GENERATE_PITCH", "false").strip().lower() in {"1", "true", "yes", "on"}
 VIP_MIN_SCORE = _env_int("VIP_MIN_SCORE", 70)
 # Best-scoring leads go first; the rest wait for the next run (they stay eligible for VIP_RETRY_MAX_AGE_HOURS).
 VIP_MAX_PER_RUN = _env_int("VIP_MAX_PER_RUN", 6)
@@ -148,17 +151,18 @@ FREE_DELAY_HOURS = _env_float("FREE_DELAY_HOURS", 4.0)
 # live checkout link exists). VIP delivery is not affected.
 FREE_CHANNEL_ENABLED = _env_str("FREE_CHANNEL_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
 # Failed VIP deliveries are retried only while the lead is still fresh.
-VIP_RETRY_MAX_AGE_HOURS = 3.0
+VIP_RETRY_MAX_AGE_HOURS = 6.0
 
-# Only leads posted within this window are analysed (cron runs every 20 min).
-# GitHub delays scheduled runs (often 35-45 min apart in practice), so keep a wide window.
-LEAD_MAX_AGE_MINUTES = _env_int("LEAD_MAX_AGE_MINUTES", 150)
+# Only leads posted within this window are analysed. Hiring posts stay open for hours, and a
+# wide window lets a run pick up what an earlier one missed (Reddit 429s, GitHub's 35-45 min
+# schedule drift); already stored leads are skipped, and the scorer rewards fresher posts.
+LEAD_MAX_AGE_MINUTES = _env_int("LEAD_MAX_AGE_MINUTES", 360)
 # Groq free tier guard: hard cap on LLM calls in a single run.
 MAX_AI_CALLS_PER_RUN = _env_int("MAX_AI_CALLS_PER_RUN", 40)
 GROQ_CONCURRENCY = max(1, _env_int("GROQ_CONCURRENCY", 3))
 # Soft wall-clock budget for one TELEGRAM_SAAS run. The repo is public (unlimited Actions
 # minutes), so runs may wait out Groq's per-minute token limit.
-RUN_TIME_BUDGET_SECONDS = _env_int("RUN_TIME_BUDGET_SECONDS", 150)
+RUN_TIME_BUDGET_SECONDS = _env_int("RUN_TIME_BUDGET_SECONDS", 190)
 # Old rows are purged to stay inside the Supabase free tier.
 RETENTION_DAYS = _env_int("RETENTION_DAYS", 30)
 
@@ -265,6 +269,8 @@ REDDIT_USER_AGENT = _env_str(
 # groups. (A time-based rotation can alias with GitHub's irregular cron timing and starve
 # the same groups, so the choice is random.) 0 = fetch every group on every run.
 REDDIT_GROUPS_PER_RUN = max(0, _env_int("REDDIT_GROUPS_PER_RUN", 3))
+# Groups fetched on every run (they count towards REDDIT_GROUPS_PER_RUN).
+REDDIT_ALWAYS_GROUPS = ("direct_jobs",)
 
 REDDIT_SUBREDDIT_GROUPS: dict[str, tuple[str, ...]] = {
     # Group 1 - direct job postings
@@ -323,8 +329,10 @@ def build_hn_params(since_timestamp: int, query: str) -> dict[str, str | int]:
 # Remote job boards (JSON + RSS)
 # ---------------------------------------------------------------------------
 REMOTEOK_API_URL = "https://remoteok.com/api"
-REMOTIVE_API_URL = "https://remotive.com/api/remote-jobs?limit=50"
+# Jobicy asks for at most one automated pass per hour. Scheduled runs fetch it only during
+# the first HOURLY_BOARD_MINUTE_WINDOW minutes of an hour (runs are 35+ minutes apart).
 JOBICY_API_URL = "https://jobicy.com/api/v2/remote-jobs?count=50"
+HOURLY_BOARD_MINUTE_WINDOW = 20
 ARBEITNOW_API_URL = "https://www.arbeitnow.com/api/job-board-api"
 
 WWR_RSS_FEEDS: dict[str, str] = {
@@ -335,7 +343,6 @@ WWR_RSS_FEEDS: dict[str, str] = {
 
 JOB_BOARD_URLS: dict[str, str] = {
     "remoteok": REMOTEOK_API_URL,
-    "remotive": REMOTIVE_API_URL,
     "jobicy": JOBICY_API_URL,
     "arbeitnow": ARBEITNOW_API_URL,
 }
@@ -350,7 +357,7 @@ FREELANCER_MIN_HOURLY_USD = _env_int("FREELANCER_MIN_HOURLY_USD", 12)
 
 # Sources whose every entry is a hiring post (no "for hire" noise).
 TRUSTED_HIRING_SOURCES = frozenset(
-    {"remoteok", "remotive", "jobicy", "arbeitnow", "weworkremotely", "freelancer"}
+    {"remoteok", "jobicy", "arbeitnow", "weworkremotely", "freelancer"}
 )
 
 
@@ -372,20 +379,18 @@ USER_AGENTS = (
 # ---------------------------------------------------------------------------
 # Pre-filter (runs BEFORE the LLM to save Groq quota)
 # ---------------------------------------------------------------------------
-POSITIVE_SIGNALS = (
-    "[hiring]",
-    "looking for a",
-    "need a developer",
-    "need an editor",
-    "need a designer",
-    "looking to hire",
-    "budget",
-    "paid",
-    "$",
-    "€/hr",
-    "$/hr",
-    "project",
+# A post must voice hiring intent in its title or opening lines. Loose words such as "$", "paid"
+# or "project" appear in nearly every startup discussion and only wasted LLM quota.
+HIRING_INTENT = re.compile(
+    r"\[hiring\]|\bhiring\b|\blooking (?:for|to hire)\b|\b(?:need|needs|needed)\s+(?:a|an|some|someone|help)\b"
+    r"|\bwant(?:ed)? to hire\b|\bhire (?:a|an|someone)\b|\bseeking (?:a|an)\b"
+    r"|\bpaid (?:gig|project|work|task)s?\b|\bbudget\b|\bwho can (?:build|design|edit|write|make)\b"
+    r"|\b(?:developer|designer|editor|writer|freelancer)s? wanted\b|\brecommend (?:a|an|any)\b",
+    re.IGNORECASE,
 )
+# Only the title and this many characters of the body are checked: long discussion posts
+# mention budgets and projects in passing.
+HIRING_INTENT_BODY_CHARS = 400
 
 # Posts whose title starts with one of these are freelancers advertising
 # themselves, not clients hiring - dropped immediately.
@@ -420,7 +425,7 @@ def passes_prefilter(title: str, body: str = "", *, trusted_source: bool = False
     * Titles starting with a NEGATIVE_PREFIXES entry are rejected outright.
     * Entries from `trusted_source` boards (every item is a hiring post) pass
       without needing a positive signal.
-    * Everything else needs at least one POSITIVE_SIGNALS match in title/body.
+    * Everything else must voice hiring intent (HIRING_INTENT) in the title or opening lines.
     """
     clean_title = (title or "").strip().lower().lstrip("*-_>~ \t")
     if len(clean_title) < MIN_TEXT_LENGTH // 2:
@@ -429,8 +434,8 @@ def passes_prefilter(title: str, body: str = "", *, trusted_source: bool = False
         return False
     if trusted_source:
         return True
-    haystack = f"{clean_title}\n{(body or '').lower()}"
-    return any(signal in haystack for signal in POSITIVE_SIGNALS)
+    opening = f"{clean_title}\n{(body or '')[:HIRING_INTENT_BODY_CHARS]}"
+    return HIRING_INTENT.search(opening) is not None
 
 
 # ---------------------------------------------------------------------------

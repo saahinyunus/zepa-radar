@@ -35,6 +35,7 @@ async def scrape_all(
     apply_prefilter: bool = True,
     custom_keywords: Iterable[str] | None = None,
     rotate_reddit: bool = False,
+    throttle_boards: bool = False,
     report: dict[str, Any] | None = None,
 ) -> list[RawLead]:
     """Run the selected scrapers concurrently and return deduplicated, pre-filtered leads.
@@ -44,6 +45,7 @@ async def scrape_all(
     * `apply_prefilter`: drop "for hire" posts and posts without hiring signals.
     * `custom_keywords`: keep only leads mentioning at least one keyword (Apify input).
     * `rotate_reddit`: fetch only a random subset of Reddit groups (scheduled runs).
+    * `throttle_boards`: poll rate-limited job boards (Jobicy) at most hourly (scheduled runs).
     * `report`: optional dict filled with {scraper: {"leads": n, "http": {host:status: count}}}.
 
     The result is sorted newest first.
@@ -61,6 +63,8 @@ async def scrape_all(
             options: dict[str, object] = {"client": client, "max_age_minutes": max_age_minutes}
             if name == "reddit":
                 options["rotate"] = rotate_reddit
+            elif name == "jobboards":
+                options["throttle"] = throttle_boards
             scrapers.append(SCRAPER_CLASSES[name](**options))
         batches = await asyncio.gather(*(scraper.scrape() for scraper in scrapers))
 

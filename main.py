@@ -69,7 +69,7 @@ async def run_cycle(
 
     # 1-3. scrape, deduplicate, analyse
     try:
-        raw_leads = await scrape_all(rotate_reddit=True, report=source_report)
+        raw_leads = await scrape_all(rotate_reddit=True, throttle_boards=True, report=source_report)
         stats.scraped = len(raw_leads)
 
         new_ids = await db.filter_new_ids([lead.item_id for lead in raw_leads])

@@ -1,4 +1,4 @@
-"""Remote job boards: RemoteOK, Remotive, Jobicy, Arbeitnow (JSON) and WeWorkRemotely (RSS)."""
+"""Remote job boards: RemoteOK, Jobicy, Arbeitnow (JSON) and WeWorkRemotely (RSS)."""
 from __future__ import annotations
 
 import asyncio
@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any, Awaitable, Callable
 
 from src import config
-from src.models import RawLead, make_item_id, parse_timestamp
+from src.models import RawLead, make_item_id, parse_timestamp, utc_now
 from src.scrapers.base_scraper import BaseScraper, guess_category, html_to_text
 
 logger = logging.getLogger(__name__)
@@ -58,13 +58,23 @@ class JobBoardsScraper(BaseScraper):
 
     name = "jobboards"
 
+    def __init__(self, *args: Any, throttle: bool = False, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Scheduled runs only: respect boards that limit how often they may be polled.
+        self.throttle = throttle
+
+    def _jobicy_due(self) -> bool:
+        return not self.throttle or utc_now().minute < config.HOURLY_BOARD_MINUTE_WINDOW
+
     async def _scrape(self) -> list[RawLead]:
         tasks: list[tuple[str, Awaitable[list[RawLead]]]] = [
             ("remoteok", self._remoteok()),
-            ("remotive", self._remotive()),
-            ("jobicy", self._jobicy()),
             ("arbeitnow", self._arbeitnow()),
         ]
+        if self._jobicy_due():
+            tasks.append(("jobicy", self._jobicy()))
+        else:
+            logger.info("[jobboards] Jobicy skipped (polled at most once per hour)")
         for category, feed_url in config.WWR_RSS_FEEDS.items():
             tasks.append((f"weworkremotely/{category}", self._weworkremotely(category, feed_url)))
 
@@ -165,42 +175,6 @@ class JobBoardsScraper(BaseScraper):
                 posted_at=parse_timestamp(job.get("epoch") or job.get("date")),
                 tags=tags,
                 extra={"location": job.get("location"), "salary": salary or None},
-            )
-            if lead is not None:
-                leads.append(lead)
-        return leads
-
-    # --- Remotive ----------------------------------------------------------
-    async def _remotive(self) -> list[RawLead]:
-        return await self._json_board(config.REMOTIVE_API_URL, self._parse_remotive)
-
-    def _parse_remotive(self, payload: Any) -> list[RawLead]:
-        jobs = payload.get("jobs") if isinstance(payload, dict) else None
-        if not isinstance(jobs, list):
-            return []
-        leads: list[RawLead] = []
-        for job in jobs:
-            if not isinstance(job, dict):
-                continue
-            tags = _as_list(job.get("tags")) + _as_list(job.get("category")) + _as_list(job.get("job_type"))
-            salary = str(job.get("salary") or "").strip()
-            description = html_to_text(job.get("description"))
-            if salary:
-                description = f"Salary: {salary}\n\n{description}"
-            lead = self._build_lead(
-                source="remotive",
-                native_id=job.get("id"),
-                title=html_to_text(job.get("title")),
-                url=str(job.get("url") or ""),
-                description=description,
-                company=html_to_text(job.get("company_name")),
-                posted_at=parse_timestamp(job.get("publication_date")),
-                tags=tags,
-                extra={
-                    "job_type": job.get("job_type"),
-                    "location": job.get("candidate_required_location"),
-                    "salary": salary or None,
-                },
             )
             if lead is not None:
                 leads.append(lead)
