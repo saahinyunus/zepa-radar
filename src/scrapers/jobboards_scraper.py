@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Any, Awaitable, Callable
@@ -14,6 +15,19 @@ from src.scrapers.base_scraper import BaseScraper, guess_category, html_to_text
 logger = logging.getLogger(__name__)
 
 BODY_MAX_CHARS = 4000
+
+# Permanent employee roles are useless for a freelance radar and burn LLM quota, so a
+# job-board post must show a flexible-work signal in its title or tags/job type (the
+# description is not scanned: boilerplate there lets permanent roles through).
+FLEXIBLE_WORK = re.compile(
+    r"\b(freelanc\w*|contract(?:or|ors|s)?|part[- ]?time|gig|temporary|temp|project[- ]based|one[- ]off)\b",
+    re.IGNORECASE,
+)
+# Regular employment contracts (Arbeitnow tags such as "Indefinite contract") are not freelance work.
+EMPLOYMENT_CONTRACT = re.compile(
+    r"\b(?:indefinite|fixed[- ]term|permanent|unbefristet\w*|befristet\w*|tijdelijk|vast)\s+(?:employment\s+)?(?:contract|arbeits\w*)[^,;]*",
+    re.IGNORECASE,
+)
 
 
 def _salary_text(low: Any, high: Any, currency: str = "$") -> str:
@@ -95,6 +109,10 @@ class JobBoardsScraper(BaseScraper):
         if category is None:
             # Not a SOFTWARE/DESIGN/VIDEO/MARKETING role - do not waste LLM quota.
             return None
+        scan_text = EMPLOYMENT_CONTRACT.sub(" ", " ".join([title, *tags]))
+        if not FLEXIBLE_WORK.search(scan_text):
+            # Permanent employee role - not freelance work, do not waste LLM quota.
+            return None
 
         header = f"Company: {company}\n" if company else ""
         tag_line = f"Tags: {', '.join(tags)}\n" if tags else ""
@@ -164,7 +182,7 @@ class JobBoardsScraper(BaseScraper):
         for job in jobs:
             if not isinstance(job, dict):
                 continue
-            tags = _as_list(job.get("tags")) + _as_list(job.get("category"))
+            tags = _as_list(job.get("tags")) + _as_list(job.get("category")) + _as_list(job.get("job_type"))
             salary = str(job.get("salary") or "").strip()
             description = html_to_text(job.get("description"))
             if salary:
