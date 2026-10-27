@@ -31,6 +31,7 @@ MIN_AI_WINDOW_SECONDS = 10.0
 FREE_BATCH_LIMIT = 20
 # Old rows are purged once per hour (during the first 20 minutes) to save API calls.
 CLEANUP_MINUTE_WINDOW = 20
+ALERT_MINUTE_WINDOW = 20
 
 
 @dataclass(slots=True)
@@ -132,11 +133,36 @@ async def run_cycle(
             stats.errors += 1
             logger.exception("Cleanup failed")
 
+    await _alert_if_unhealthy(stats, analyzer, notifier)
+
     logger.info("Cycle finished in %.1fs | %s", time.monotonic() - started, stats.summary())
     if os.getenv("GITHUB_ACTIONS"):
         # Workflow annotations are readable from the public API without logging in.
         print(f"::notice title=Radar run::{stats.summary()} | sources={json.dumps(source_report, sort_keys=True)}")
     return stats
+
+
+def health_problems(stats: RunStats, analyzer: AIAnalyzer) -> list[str]:
+    """Silent degradations worth telling the operator about (hard crashes already fail the workflow)."""
+    problems: list[str] = []
+    if analyzer.quota_exhausted:
+        problems.append("Groq quota exhausted or API key rejected - AI analysis stopped.")
+    elif stats.new and analyzer.failures * 2 >= stats.new:
+        problems.append(f"{analyzer.failures} of {stats.new} AI analyses failed.")
+    if stats.errors:
+        problems.append(f"{stats.errors} error(s) during the cycle - see the GitHub Actions log.")
+    return problems
+
+
+async def _alert_if_unhealthy(stats: RunStats, analyzer: AIAnalyzer, notifier: TelegramNotifier) -> None:
+    problems = health_problems(stats, analyzer)
+    # Runs are irregular (35-45 min apart), so "first 20 minutes of the hour" is about one alert per hour.
+    if not problems or utc_now().minute >= ALERT_MINUTE_WINDOW:
+        return
+    try:
+        await notifier.send_admin_alert("\n".join(problems) + f"\n{stats.summary()}")
+    except Exception:  # noqa: BLE001 - alerting must never break the cycle
+        logger.exception("Could not send the admin alert")
 
 
 def _print_dry_run(leads: list[AnalyzedLead]) -> None:

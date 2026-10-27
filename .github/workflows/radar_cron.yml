@@ -25,10 +25,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -53,6 +53,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_VIP_GROUP_ID: ${{ secrets.TELEGRAM_VIP_GROUP_ID }}
           TELEGRAM_FREE_CHANNEL_ID: ${{ secrets.TELEGRAM_FREE_CHANNEL_ID }}
+          TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID }}
           TOPIC_ID_SOFTWARE: ${{ secrets.TOPIC_ID_SOFTWARE }}
           TOPIC_ID_DESIGN: ${{ secrets.TOPIC_ID_DESIGN }}
           TOPIC_ID_VIDEO: ${{ secrets.TOPIC_ID_VIDEO }}

@@ -223,6 +223,16 @@ class TelegramNotifier:
             keyboard=free_keyboard(),
         )
 
+    async def send_admin_alert(self, text: str) -> bool:
+        """Private health message to the operator. No-op when TELEGRAM_ADMIN_CHAT_ID is unset."""
+        if not config.TELEGRAM_ADMIN_CHAT_ID:
+            return False
+        result = await self.call_api(
+            "sendMessage",
+            {"chat_id": config.TELEGRAM_ADMIN_CHAT_ID, "text": f"⚠️ Radar alert\n{text}"[:4000]},
+        )
+        return result is not None
+
     async def send_vip_leads(self, leads: Sequence[AnalyzedLead], db: BaseDatabase) -> int:
         """Send leads to VIP one by one; each success is flagged `sent_to_vip` immediately.
 
