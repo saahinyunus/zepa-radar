@@ -31,7 +31,8 @@ Freelancers and small agencies lose hours every week sorting through "for hire" 
 
 - **Reddit**: dozens of communities where people post jobs and project requests, from r/forhire and r/DesignJobs to startup, SaaS, marketing and creator communities
 - **Hacker News**: hiring and "looking for" posts and comments
-- **Remote job boards**: RemoteOK, Remotive, Jobicy, Arbeitnow and We Work Remotely
+- **Freelancer.com**: fresh client projects with stated budgets
+- **Remote job boards**: RemoteOK, Remotive, Jobicy, Arbeitnow and We Work Remotely (only freelance, contract and part-time roles)
 
 All sources are public. No logins, no proxies and no private data.
 
@@ -61,7 +62,7 @@ All sources are public. No logins, no proxies and no private data.
 | `max_items` | integer | `50` | The run stops after this many qualified leads |
 | `custom_keywords` | array | none | Keep only posts that mention at least one keyword |
 | `max_age_hours` | integer | `24` | Only posts from the last N hours (max 168) |
-| `sources` | array | all | `reddit`, `hackernews`, `jobboards` |
+| `sources` | array | all | `reddit`, `hackernews`, `jobboards`, `freelancer` |
 
 Example:
 

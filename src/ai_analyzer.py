@@ -17,7 +17,7 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Sequence
 
 import httpx
@@ -131,20 +131,49 @@ def build_triage_prompt(raw: RawLead) -> str:
     )
 
 
+MAX_RATE_LIMIT_WAITS = 12
+_DURATION = re.compile(r"^(?:(\d+)h)?(?:(\d+)m(?!s))?(?:([\d.]+)s)?(?:([\d.]+)ms)?$")
+
+
+def parse_duration(value: str | None) -> float | None:
+    """Seconds from Groq reset headers such as '29.662s', '1m5.2s' or '250ms'."""
+    match = _DURATION.match((value or "").strip())
+    if not match or not any(match.groups()):
+        return None
+    hours, minutes, seconds, millis = match.groups()
+    return (
+        int(hours or 0) * 3600 + int(minutes or 0) * 60 + float(seconds or 0) + float(millis or 0) / 1000
+    )
+
+
 @dataclass(slots=True)
 class _ModelSlot:
-    """One Groq model plus its optional fallback and quota state."""
+    """One Groq model plus its optional fallback, quota state and token-pool tracking."""
 
     model: str
     fallback: str = ""
     exhausted: bool = False
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    remaining_tokens: int | None = None
+    reset_at: float = 0.0
 
     def switch_to_fallback(self) -> bool:
         if not self.fallback:
             return False
         logger.warning("Groq quota reached for %s - switching to %s", self.model, self.fallback)
         self.model, self.fallback = self.fallback, ""
+        self.remaining_tokens, self.reset_at = None, 0.0
         return True
+
+    def note_rate_limit_headers(self, headers: Any) -> None:
+        remaining = headers.get("x-ratelimit-remaining-tokens")
+        reset = parse_duration(headers.get("x-ratelimit-reset-tokens"))
+        try:
+            self.remaining_tokens = int(remaining) if remaining is not None else None
+        except ValueError:
+            self.remaining_tokens = None
+        if reset is not None:
+            self.reset_at = time.monotonic() + reset
 
 
 class AIAnalyzer:
@@ -224,7 +253,7 @@ class AIAnalyzer:
 
         if self._triage is not None:
             verdict = await self._chat(
-                self._triage, TRIAGE_SYSTEM_PROMPT, build_triage_prompt(raw), config.TRIAGE_MAX_OUTPUT_TOKENS
+                self._triage, TRIAGE_SYSTEM_PROMPT, build_triage_prompt(raw), config.TRIAGE_MAX_OUTPUT_TOKENS, 150
             )
             if verdict is None:
                 self.failures += 1
@@ -245,7 +274,9 @@ class AIAnalyzer:
                 logger.debug("Triaged out %s (%s, %d)", raw.item_id, candidate.category, candidate.quality_score)
                 return candidate
 
-        data = await self._chat(self._full, SYSTEM_PROMPT, build_user_prompt(raw), config.GROQ_MAX_OUTPUT_TOKENS)
+        data = await self._chat(
+            self._full, SYSTEM_PROMPT, build_user_prompt(raw), config.GROQ_MAX_OUTPUT_TOKENS, 800
+        )
         if data is None:
             self.failures += 1
             return None
@@ -300,79 +331,122 @@ class AIAnalyzer:
         if self._triage is not None:
             self._triage.exhausted = True
 
+    async def _wait_for_tokens(self, slot: _ModelSlot, estimate: int) -> bool:
+        """Sleep until the per-minute token pool can fit `estimate` tokens.
+
+        Uses the `x-ratelimit-remaining-tokens` / `x-ratelimit-reset-tokens` headers of the
+        previous response. Returns False if the wait would run past the run deadline.
+        """
+        now = time.monotonic()
+        if slot.remaining_tokens is None or slot.remaining_tokens >= estimate or slot.reset_at <= now:
+            return True
+        delay = slot.reset_at - now + 0.5
+        if self._past_deadline(delay):
+            logger.warning("Run time budget reached - not waiting %.0fs for Groq tokens", delay)
+            return False
+        logger.debug("Waiting %.1fs for the %s token pool", delay, slot.model)
+        await asyncio.sleep(delay)
+        slot.remaining_tokens = None
+        return True
+
     async def _chat(
-        self, slot: _ModelSlot, system_prompt: str, user_prompt: str, max_tokens: int
+        self,
+        slot: _ModelSlot,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int,
+        expected_output: int = 300,
     ) -> dict[str, Any] | None:
         client = self._ensure_client()
+        estimate = int((len(system_prompt) + len(user_prompt)) / 3.5) + expected_output
         last_error = "unknown error"
+        attempt = 0
+        rate_waits = 0
 
-        for attempt in range(config.HTTP_MAX_RETRIES):
-            if slot.exhausted:
-                return None
-            payload = {
-                "model": slot.model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "temperature": 0.2,
-                "max_tokens": max_tokens,
-                "response_format": {"type": "json_object"},
-            }
-            if config.GROQ_REASONING_EFFORT and "gpt-oss" in slot.model:
-                payload["reasoning_effort"] = config.GROQ_REASONING_EFFORT
-            wait = config.backoff_delay(attempt)
-
-            try:
-                response = await client.post(
-                    config.GROQ_API_URL,
-                    json=payload,
-                    headers={"Authorization": f"Bearer {self._api_key}"},
-                )
-            except (httpx.TimeoutException, httpx.TransportError) as exc:
-                last_error = f"{type(exc).__name__}: {exc}"
-                logger.warning("Groq request error (attempt %d): %s", attempt + 1, last_error)
-            else:
-                status = response.status_code
-                if status == 200:
-                    data = self._extract_result(response)
-                    if data is not None:
-                        return data
-                    last_error = "unparseable model reply"
-                elif status == 429:
-                    retry_after = _retry_after(response)
-                    if retry_after is not None:
-                        wait = retry_after
-                    if wait > config.GROQ_MAX_WAIT_SECONDS:
-                        # Daily / hourly quota rather than a short burst limit.
-                        if slot.switch_to_fallback():
-                            continue
-                        slot.exhausted = True
-                        logger.error(
-                            "Groq quota exhausted for %s (retry in %.0fs) - AI stopped for this run",
-                            slot.model, wait,
-                        )
-                        return None
-                    last_error = "HTTP 429 rate limited"
-                    logger.warning("Groq rate limited, retrying in %.1fs", wait)
-                elif status in (401, 403):
-                    self._exhaust_all()
-                    logger.error("Groq rejected the API key (HTTP %d) - AI stopped for this run", status)
+        # One call at a time per model: the per-minute token pool is shared anyway, and
+        # serialising lets the limiter above see the real remaining tokens.
+        async with slot.lock:
+            while attempt < config.HTTP_MAX_RETRIES:
+                if slot.exhausted:
                     return None
-                elif status == 400 and "json_validate_failed" in response.text:
-                    last_error = "model produced invalid JSON"
-                elif status in config.RETRYABLE_STATUS_CODES:
-                    last_error = f"HTTP {status}"
-                    logger.warning("Groq HTTP %d (attempt %d)", status, attempt + 1)
+                if not await self._wait_for_tokens(slot, estimate):
+                    return None
+
+                payload = {
+                    "model": slot.model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": max_tokens,
+                    "response_format": {"type": "json_object"},
+                }
+                if config.GROQ_REASONING_EFFORT and "gpt-oss" in slot.model:
+                    payload["reasoning_effort"] = config.GROQ_REASONING_EFFORT
+                wait = config.backoff_delay(attempt)
+
+                try:
+                    response = await client.post(
+                        config.GROQ_API_URL,
+                        json=payload,
+                        headers={"Authorization": f"Bearer {self._api_key}"},
+                    )
+                except (httpx.TimeoutException, httpx.TransportError) as exc:
+                    last_error = f"{type(exc).__name__}: {exc}"
+                    logger.warning("Groq request error (attempt %d): %s", attempt + 1, last_error)
                 else:
-                    logger.error("Groq HTTP %d: %s", status, response.text[:300])
-                    return None
+                    slot.note_rate_limit_headers(response.headers)
+                    status = response.status_code
+                    if status == 200:
+                        data = self._extract_result(response)
+                        if data is not None:
+                            return data
+                        last_error = "unparseable model reply"
+                    elif status == 429:
+                        retry_after = _retry_after(response)
+                        if retry_after is not None:
+                            wait = retry_after
+                        if wait > config.GROQ_MAX_WAIT_SECONDS:
+                            # Daily request quota rather than the per-minute token pool.
+                            if slot.switch_to_fallback():
+                                continue
+                            slot.exhausted = True
+                            logger.error(
+                                "Groq quota exhausted for %s (retry in %.0fs) - AI stopped for this run",
+                                slot.model, wait,
+                            )
+                            return None
+                        # Per-minute limit: waiting is expected and does not use up a retry.
+                        rate_waits += 1
+                        if rate_waits > MAX_RATE_LIMIT_WAITS:
+                            last_error = "HTTP 429 rate limited"
+                            break
+                        if self._past_deadline(wait):
+                            logger.warning("Run time budget reached - not retrying Groq call")
+                            return None
+                        logger.info("Groq token limit reached, waiting %.1fs", wait)
+                        await asyncio.sleep(wait + 0.5)
+                        continue
+                    elif status in (401, 403):
+                        self._exhaust_all()
+                        logger.error("Groq rejected the API key (HTTP %d) - AI stopped for this run", status)
+                        return None
+                    elif status == 400 and "json_validate_failed" in response.text:
+                        last_error = "model produced invalid JSON"
+                    elif status in config.RETRYABLE_STATUS_CODES:
+                        last_error = f"HTTP {status}"
+                        logger.warning("Groq HTTP %d (attempt %d)", status, attempt + 1)
+                    else:
+                        logger.error("Groq HTTP %d: %s", status, response.text[:300])
+                        return None
 
-            if attempt < config.HTTP_MAX_RETRIES - 1:
-                if self._past_deadline(wait):
-                    logger.warning("Run time budget reached - not retrying Groq call")
-                    return None
-                await asyncio.sleep(wait)
+                attempt += 1
+                if attempt < config.HTTP_MAX_RETRIES:
+                    if self._past_deadline(wait):
+                        logger.warning("Run time budget reached - not retrying Groq call")
+                        return None
+                    await asyncio.sleep(wait)
 
         logger.error("Groq call failed after %d attempts: %s", config.HTTP_MAX_RETRIES, last_error)
         return None

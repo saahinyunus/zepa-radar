@@ -109,8 +109,10 @@ if GROQ_TRIAGE_MODEL.lower() in {"none", "off", "disabled"}:
 TRIAGE_MIN_SCORE = _env_int("TRIAGE_MIN_SCORE", 45)
 TRIAGE_MAX_INPUT_CHARS = 1200
 TRIAGE_MAX_OUTPUT_TOKENS = 250
-# A 429 asking us to wait longer than this means a daily/hourly quota, not a burst.
-GROQ_MAX_WAIT_SECONDS = 8.0
+# Groq free tier (measured): 1000 requests/day and 8000 tokens/minute per model. A 429 that
+# clears within a minute is the token-per-minute limit: wait for it. A longer wait means
+# the daily request quota is gone.
+GROQ_MAX_WAIT_SECONDS = 65.0
 GROQ_MAX_OUTPUT_TOKENS = 1200
 AI_MAX_INPUT_CHARS = 2500
 
@@ -150,8 +152,9 @@ LEAD_MAX_AGE_MINUTES = _env_int("LEAD_MAX_AGE_MINUTES", 150)
 # Groq free tier guard: hard cap on LLM calls in a single run.
 MAX_AI_CALLS_PER_RUN = _env_int("MAX_AI_CALLS_PER_RUN", 40)
 GROQ_CONCURRENCY = max(1, _env_int("GROQ_CONCURRENCY", 3))
-# Soft wall-clock budget for one TELEGRAM_SAAS run (GitHub Actions minutes).
-RUN_TIME_BUDGET_SECONDS = _env_int("RUN_TIME_BUDGET_SECONDS", 25)
+# Soft wall-clock budget for one TELEGRAM_SAAS run. The repo is public (unlimited Actions
+# minutes), so runs may wait out Groq's per-minute token limit.
+RUN_TIME_BUDGET_SECONDS = _env_int("RUN_TIME_BUDGET_SECONDS", 150)
 # Old rows are purged to stay inside the Supabase free tier.
 RETENTION_DAYS = _env_int("RETENTION_DAYS", 30)
 
@@ -333,9 +336,17 @@ JOB_BOARD_URLS: dict[str, str] = {
     "arbeitnow": ARBEITNOW_API_URL,
 }
 
+# Freelancer.com public projects API (no key). Every project is a client request.
+FREELANCER_API_URL = "https://www.freelancer.com/api/projects/0.1/projects/active/"
+FREELANCER_FETCH_LIMIT = 100
+FREELANCER_MAX_PER_RUN = _env_int("FREELANCER_MAX_PER_RUN", 10)
+# Budgets are compared in USD (the API gives an exchange rate per currency).
+FREELANCER_MIN_BUDGET_USD = _env_int("FREELANCER_MIN_BUDGET_USD", 150)
+FREELANCER_MIN_HOURLY_USD = _env_int("FREELANCER_MIN_HOURLY_USD", 12)
+
 # Sources whose every entry is a hiring post (no "for hire" noise).
 TRUSTED_HIRING_SOURCES = frozenset(
-    {"remoteok", "remotive", "jobicy", "arbeitnow", "weworkremotely"}
+    {"remoteok", "remotive", "jobicy", "arbeitnow", "weworkremotely", "freelancer"}
 )
 
 

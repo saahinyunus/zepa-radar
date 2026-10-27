@@ -67,15 +67,16 @@
             "editor": "select",
             "items": {
                 "type": "string",
-                "enum": ["reddit", "hackernews", "jobboards"],
+                "enum": ["reddit", "hackernews", "jobboards", "freelancer"],
                 "enumTitles": [
                     "Reddit (hiring and founder communities)",
                     "Hacker News",
-                    "Remote job boards (RemoteOK, Remotive, Jobicy, Arbeitnow, We Work Remotely)"
+                    "Remote job boards (RemoteOK, Remotive, Jobicy, Arbeitnow, We Work Remotely)",
+                    "Freelancer.com projects"
                 ]
             },
-            "default": ["reddit", "hackernews", "jobboards"],
-            "prefill": ["reddit", "hackernews", "jobboards"]
+            "default": ["reddit", "hackernews", "jobboards", "freelancer"],
+            "prefill": ["reddit", "hackernews", "jobboards", "freelancer"]
         }
     },
     "required": []

@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Iterable
+from typing import Any, Iterable
 
 from src import config
 from src.models import RawLead
 from src.scrapers.base_scraper import BaseScraper, build_http_client
+from src.scrapers.freelancer_scraper import FreelancerScraper
 from src.scrapers.hn_scraper import HackerNewsScraper
 from src.scrapers.jobboards_scraper import JobBoardsScraper
 from src.scrapers.reddit_scraper import RedditScraper
@@ -18,6 +19,7 @@ SCRAPER_CLASSES: dict[str, type[BaseScraper]] = {
     "reddit": RedditScraper,
     "hackernews": HackerNewsScraper,
     "jobboards": JobBoardsScraper,
+    "freelancer": FreelancerScraper,
 }
 
 
@@ -33,6 +35,7 @@ async def scrape_all(
     apply_prefilter: bool = True,
     custom_keywords: Iterable[str] | None = None,
     rotate_reddit: bool = False,
+    report: dict[str, Any] | None = None,
 ) -> list[RawLead]:
     """Run the selected scrapers concurrently and return deduplicated, pre-filtered leads.
 
@@ -40,7 +43,8 @@ async def scrape_all(
     * `max_age_minutes`: freshness window (default: config.LEAD_MAX_AGE_MINUTES).
     * `apply_prefilter`: drop "for hire" posts and posts without hiring signals.
     * `custom_keywords`: keep only leads mentioning at least one keyword (Apify input).
-    * `rotate_reddit`: fetch only a rotating subset of Reddit groups (scheduled runs).
+    * `rotate_reddit`: fetch only a random subset of Reddit groups (scheduled runs).
+    * `report`: optional dict filled with {scraper: {"leads": n, "http": {host:status: count}}}.
 
     The result is sorted newest first.
     """
@@ -59,6 +63,10 @@ async def scrape_all(
                 options["rotate"] = rotate_reddit
             scrapers.append(SCRAPER_CLASSES[name](**options))
         batches = await asyncio.gather(*(scraper.scrape() for scraper in scrapers))
+
+    if report is not None:
+        for scraper, batch in zip(scrapers, batches):
+            report[scraper.name] = {"leads": len(batch), "http": dict(scraper.http_stats)}
 
     collected: dict[str, RawLead] = {}
     for batch in batches:
@@ -91,6 +99,7 @@ async def scrape_all(
 
 __all__ = [
     "BaseScraper",
+    "FreelancerScraper",
     "HackerNewsScraper",
     "JobBoardsScraper",
     "RedditScraper",

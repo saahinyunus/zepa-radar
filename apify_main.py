@@ -100,7 +100,7 @@ def qualifies(lead: AnalyzedLead, options: ActorInput) -> bool:
 
 async def run_scan(options: ActorInput, actor: ActorLike, analyzer: AIAnalyzer | None = None) -> int:
     """Scrape, analyse and deliver leads. Returns the number of leads pushed to the dataset."""
-    await actor.set_status_message("Scanning Reddit, Hacker News and remote job boards...")
+    await actor.set_status_message("Scanning Reddit, Hacker News, Freelancer.com and remote job boards...")
     raw_leads = await scrape_all(
         options.sources,
         max_age_minutes=options.max_age_hours * 60,

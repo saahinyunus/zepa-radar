@@ -7,6 +7,7 @@ import logging
 import random
 import re
 from abc import ABC, abstractmethod
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Any, Mapping
 
@@ -97,6 +98,8 @@ class BaseScraper(ABC):
     ) -> None:
         self._client = client
         self._owns_client = client is None
+        # Response statuses per host (e.g. {"www.reddit.com:403": 2}); used for run reports.
+        self.http_stats: Counter[str] = Counter()
         self.max_age_minutes = (
             config.LEAD_MAX_AGE_MINUTES if max_age_minutes is None else max_age_minutes
         )
@@ -138,13 +141,16 @@ class BaseScraper(ABC):
                 request_headers.update(headers)
             retry_after: float | None = None
 
+            host = httpx.URL(url).host
             try:
                 response = await client.get(url, params=params, headers=request_headers)
             except (httpx.TimeoutException, httpx.TransportError) as exc:
+                self.http_stats[f"{host}:error"] += 1
                 last_error = f"{type(exc).__name__}: {exc}"
                 logger.warning("[%s] request error (attempt %d): %s", self.name, attempt + 1, last_error)
             else:
                 status = response.status_code
+                self.http_stats[f"{host}:{status}"] += 1
                 if status in config.RETRYABLE_STATUS_CODES:
                     last_error = f"HTTP {status}"
                     retry_after = parse_retry_after(response.headers)

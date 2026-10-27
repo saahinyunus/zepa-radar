@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -63,11 +64,12 @@ async def run_cycle(
     """Execute one full radar cycle. A failing phase is logged and the next phase still runs."""
     started = time.monotonic()
     stats = RunStats()
+    source_report: dict = {}
     analyzed: list[AnalyzedLead] = []
 
     # 1-3. scrape, deduplicate, analyse
     try:
-        raw_leads = await scrape_all(rotate_reddit=True)
+        raw_leads = await scrape_all(rotate_reddit=True, report=source_report)
         stats.scraped = len(raw_leads)
 
         new_ids = await db.filter_new_ids([lead.item_id for lead in raw_leads])
@@ -132,6 +134,9 @@ async def run_cycle(
             logger.exception("Cleanup failed")
 
     logger.info("Cycle finished in %.1fs | %s", time.monotonic() - started, stats.summary())
+    if os.getenv("GITHUB_ACTIONS"):
+        # Workflow annotations are readable from the public API without logging in.
+        print(f"::notice title=Radar run::{stats.summary()} | sources={json.dumps(source_report, sort_keys=True)}")
     return stats
 
 
