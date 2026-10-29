@@ -37,3 +37,7 @@ Thumbs.db
 
 # --- Private planning notes (keep out of the public repo) ---
 claude_master_prompt_global_freelance_radar.md
+
+# Lead audit samples (contain real post summaries)
+audit/
+lead_audit_sample.json

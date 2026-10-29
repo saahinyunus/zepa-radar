@@ -143,9 +143,14 @@ LEMON_SQUEEZY_CHECKOUT_URL = _env_str("LEMON_SQUEEZY_CHECKOUT_URL")
 # ---------------------------------------------------------------------------
 # A ready-made pitch would reach every VIP member verbatim, so the Telegram product leaves it off.
 GENERATE_PITCH = os.getenv("GENERATE_PITCH", "false").strip().lower() in {"1", "true", "yes", "on"}
-VIP_MIN_SCORE = _env_int("VIP_MIN_SCORE", 70)
+# Scoring v2 (src/scoring.py) sums to at most ~90, so the publication threshold is lower than with v1.
+# Provisional: re-check against labelled leads once enough stored facts exist.
+VIP_MIN_SCORE = _env_int("VIP_MIN_SCORE", 60)
 # Best-scoring leads go first; the rest wait for the next run (they stay eligible for VIP_RETRY_MAX_AGE_HOURS).
-VIP_MAX_PER_RUN = _env_int("VIP_MAX_PER_RUN", 6)
+VIP_MAX_PER_RUN = _env_int("VIP_MAX_PER_RUN", 4)
+# At most this many leads are posted per UTC day, independent of how often the workflow runs.
+# Fewer strong leads beat a full quota: nothing is posted just to fill it. 0 disables the cap.
+VIP_DAILY_CAP = _env_int("VIP_DAILY_CAP", 20)
 FREE_DELAY_HOURS = _env_float("FREE_DELAY_HOURS", 4.0)
 # Set FREE_CHANNEL_ENABLED=false to pause the delayed Free-channel teasers (e.g. until the
 # live checkout link exists). VIP delivery is not affected.
@@ -346,6 +351,18 @@ JOB_BOARD_URLS: dict[str, str] = {
     "jobicy": JOBICY_API_URL,
     "arbeitnow": ARBEITNOW_API_URL,
 }
+
+# Source switches: sources whose terms of use are unclear can be turned off without touching code,
+# e.g. DISABLED_SOURCES=freelancer. The rest of the pipeline keeps running. See SOURCES.md.
+DISABLED_SOURCES = frozenset(
+    item.strip().lower() for item in os.getenv("DISABLED_SOURCES", "").split(",") if item.strip()
+)
+# Job boards to fetch. Arbeitnow lists local German/Dutch employment, not remote freelance work.
+ENABLED_JOB_BOARDS = frozenset(
+    item.strip().lower()
+    for item in os.getenv("ENABLED_JOB_BOARDS", "remoteok,jobicy,weworkremotely").split(",")
+    if item.strip()
+)
 
 # Freelancer.com public projects API (no key). Every project is a client request.
 FREELANCER_API_URL = "https://www.freelancer.com/api/projects/0.1/projects/active/"

@@ -54,6 +54,18 @@ class RunStats:
         )
 
 
+async def vip_allowance(db: BaseDatabase) -> int:
+    """How many leads may go to the VIP group in this run: the per-run cap, cut by what is left of
+    the daily cap (UTC day), so the daily volume does not depend on how often the workflow runs."""
+    allowance = config.VIP_MAX_PER_RUN
+    if config.VIP_DAILY_CAP > 0:
+        midnight = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
+        sent_today = await db.count_vip_sent_since(midnight)
+        allowance = min(allowance, max(0, config.VIP_DAILY_CAP - sent_today))
+        logger.info("VIP allowance %d (daily cap %d, already sent today %d)", allowance, config.VIP_DAILY_CAP, sent_today)
+    return allowance
+
+
 async def run_cycle(
     db: BaseDatabase,
     analyzer: AIAnalyzer,
@@ -105,7 +117,8 @@ async def run_cycle(
 
     # 5. VIP: new leads plus any earlier lead whose delivery failed
     try:
-        pending = await db.get_pending_vip_leads(limit=config.VIP_MAX_PER_RUN)
+        allowance = await vip_allowance(db)
+        pending = await db.get_pending_vip_leads(limit=allowance) if allowance > 0 else []
         stats.vip_candidates = len(pending)
         if pending:
             stats.vip_sent = await notifier.send_vip_leads(pending, db)

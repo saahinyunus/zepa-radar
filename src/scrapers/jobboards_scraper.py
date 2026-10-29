@@ -67,16 +67,20 @@ class JobBoardsScraper(BaseScraper):
         return not self.throttle or utc_now().minute < config.HOURLY_BOARD_MINUTE_WINDOW
 
     async def _scrape(self) -> list[RawLead]:
-        tasks: list[tuple[str, Awaitable[list[RawLead]]]] = [
-            ("remoteok", self._remoteok()),
-            ("arbeitnow", self._arbeitnow()),
-        ]
-        if self._jobicy_due():
-            tasks.append(("jobicy", self._jobicy()))
-        else:
-            logger.info("[jobboards] Jobicy skipped (polled at most once per hour)")
-        for category, feed_url in config.WWR_RSS_FEEDS.items():
-            tasks.append((f"weworkremotely/{category}", self._weworkremotely(category, feed_url)))
+        enabled = config.ENABLED_JOB_BOARDS
+        tasks: list[tuple[str, Awaitable[list[RawLead]]]] = []
+        if "remoteok" in enabled:
+            tasks.append(("remoteok", self._remoteok()))
+        if "arbeitnow" in enabled:
+            tasks.append(("arbeitnow", self._arbeitnow()))
+        if "jobicy" in enabled:
+            if self._jobicy_due():
+                tasks.append(("jobicy", self._jobicy()))
+            else:
+                logger.info("[jobboards] Jobicy skipped (polled at most once per hour)")
+        if "weworkremotely" in enabled:
+            for category, feed_url in config.WWR_RSS_FEEDS.items():
+                tasks.append((f"weworkremotely/{category}", self._weworkremotely(category, feed_url)))
 
         results = await asyncio.gather(*(task for _, task in tasks), return_exceptions=True)
 

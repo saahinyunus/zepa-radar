@@ -183,6 +183,11 @@ class BaseDatabase(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def count_vip_sent_since(self, since: datetime) -> int:
+        """Number of leads captured at/after `since` that were already delivered to the VIP group."""
+        raise NotImplementedError
+
+    @abstractmethod
     async def get_due_free_leads(self, limit: int = 20) -> list[AnalyzedLead]:
         """VIP-delivered leads older than FREE_DELAY_HOURS that are not yet in the Free channel."""
         raise NotImplementedError
@@ -321,6 +326,16 @@ class SQLiteDatabase(BaseDatabase):
                 (config.VIP_MIN_SCORE, oldest, limit),
             ).fetchall()
             return [AnalyzedLead.from_db_row(dict(row)) for row in rows]
+
+        return await self._run(operation)
+
+    async def count_vip_sent_since(self, since: datetime) -> int:
+        def operation(conn: sqlite3.Connection) -> int:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM processed_leads WHERE sent_to_vip = 1 AND created_at >= ?",
+                (format_db_timestamp(since),),
+            ).fetchone()
+            return int(row[0])
 
         return await self._run(operation)
 
@@ -587,6 +602,19 @@ class SupabaseDatabase(BaseDatabase):
             },
         )
         return [AnalyzedLead.from_db_row(row) for row in response.json()]
+
+    async def count_vip_sent_since(self, since: datetime) -> int:
+        response = await self._request(
+            "GET",
+            LEADS_TABLE,
+            params={
+                "select": "item_id",
+                "sent_to_vip": "eq.1",
+                "created_at": f"gte.{since.isoformat()}",
+                "limit": "1000",
+            },
+        )
+        return len(response.json())
 
     async def get_due_free_leads(self, limit: int = 20) -> list[AnalyzedLead]:
         cutoff = (utc_now() - timedelta(hours=config.FREE_DELAY_HOURS)).isoformat()

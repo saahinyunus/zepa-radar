@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any, Iterable
 
 from src import config
@@ -21,6 +22,12 @@ SCRAPER_CLASSES: dict[str, type[BaseScraper]] = {
     "jobboards": JobBoardsScraper,
     "freelancer": FreelancerScraper,
 }
+
+
+def _title_key(title: str) -> str:
+    """Normalised title used to spot duplicate postings (letters and digits only)."""
+    key = re.sub(r"[^a-z0-9]+", " ", (title or "").lower()).strip()
+    return key if len(key) >= 25 else ""
 
 
 def _matches_keywords(lead: RawLead, keywords: list[str]) -> bool:
@@ -51,6 +58,10 @@ async def scrape_all(
     The result is sorted newest first.
     """
     names = list(dict.fromkeys(sources)) if sources is not None else list(SCRAPER_CLASSES)
+    skipped = [name for name in names if name in config.DISABLED_SOURCES]
+    if skipped:
+        logger.info("Sources switched off (DISABLED_SOURCES): %s", ", ".join(skipped))
+        names = [name for name in names if name not in config.DISABLED_SOURCES]
     unknown = [name for name in names if name not in SCRAPER_CLASSES]
     if unknown:
         raise ValueError(f"Unknown scraper source(s): {', '.join(unknown)}. Valid: {', '.join(SCRAPER_CLASSES)}")
@@ -73,9 +84,17 @@ async def scrape_all(
             report[scraper.name] = {"leads": len(batch), "http": dict(scraper.http_stats)}
 
     collected: dict[str, RawLead] = {}
+    seen_titles: set[str] = set()
     for batch in batches:
         for lead in batch:
-            collected.setdefault(lead.item_id, lead)
+            if lead.item_id in collected:
+                continue
+            # The same opportunity can be posted twice or cross-posted; keep the first copy only.
+            title_key = _title_key(lead.title)
+            if title_key and title_key in seen_titles:
+                continue
+            seen_titles.add(title_key)
+            collected[lead.item_id] = lead
 
     leads = list(collected.values())
     total = len(leads)

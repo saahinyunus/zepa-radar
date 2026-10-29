@@ -1,30 +1,36 @@
-"""Deterministic lead scoring.
+"""Deterministic lead scoring (version 2).
 
-The LLM only extracts facts from a listing (engagement type, scope clarity, red flags).
-The score itself is computed here from those facts plus structured data the scrapers
-already know (budget, bid count, age, description length), so the same listing always
-gets the same score and every point can be traced back to a reason.
+The LLM only extracts facts from a listing (engagement type, scope clarity, remote/digital,
+geographic restriction, red flags). The score itself is computed here from those facts plus
+structured data the scrapers already know (budget, bids, age), so the same listing always gets
+the same score and every point can be traced back to a reason.
 
-    Component            Points   Source
-    -------------------  -------  ------------------------------------------
-    base                 10       any lead that passes the validity checks
-    budget               0-30     scraper data, else dollar amounts in the text
-    scope clarity        0-15     LLM rating 1-5
-    description detail   0-10     text length
-    competition          0-15     bids so far (Freelancer) / direct contact
-    freshness            0-10     minutes since posting
-    engagement type      0-10     LLM: project / ongoing / full-time / unclear
-    red flags            -12 each LLM list, three of them are disqualifying
+    Component          Points    Source
+    -----------------  --------  -------------------------------------------------
+    base               10        any lead that passes the validity checks
+    budget             2-25      explicit amount, else a platform range, else neutral
+    scope clarity      0-20      LLM rating 1-5
+    competition        0-12      bids so far (bidding platforms) / direct contact
+    freshness          1-10      minutes since the original posting
+    engagement type    1-10      LLM: project / ongoing / full-time / unclear
+    geography          0 to -25  LLM: worldwide / region / one country
+    red flags          -12 each  LLM list; three of them are disqualifying
+
+Weights are provisional. Every lead stores its facts and the score breakdown (`facts`), so the
+weights and the publication threshold can be re-checked against labelled leads instead of guessed.
 """
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from src.models import RawLead, utc_now
 
-FATAL_FLAGS = frozenset({"pay_to_apply", "scam_or_mlm", "adult_or_illegal"})
+SCORE_VERSION = 2
+
+FATAL_FLAGS = frozenset({"pay_to_apply", "scam_or_mlm", "adult_or_illegal", "policy_violating"})
 SOFT_FLAGS = frozenset({"spec_work", "unrealistic_budget", "vague_template", "commission_only"})
 RED_FLAG_PENALTY = 12
 
@@ -35,13 +41,24 @@ ENGAGEMENT_POINTS = {
     "full_time_job": 1,
 }
 FULL_TIME_SCORE_CAP = 55
-# Budget points when the listing names no amount: neutral, not a reward.
-UNKNOWN_BUDGET_POINTS = 12
-# Amounts guessed from free text are less reliable than structured data.
-TEXT_BUDGET_POINTS_CAP = 21
-# Platforms where many freelancers bid on the same listing leave little room for a late applicant.
+
+GEO_RESTRICTIONS = ("worldwide", "us_only", "eu_only", "specific_country", "unknown")
+# Members work from everywhere: a job tied to one country is out of reach for most of them.
+GEO_PENALTY = {"worldwide": 0, "unknown": 0, "us_only": 8, "eu_only": 8, "specific_country": 25}
+
+# Budget provenance: how much the amount can be trusted.
+BUDGET_EXPLICIT = "explicit"  # the client wrote it (structured field or amount in the text)
+BUDGET_PLATFORM_RANGE = "platform_range"  # a preset size class picked from a menu (Freelancer.com)
+BUDGET_UNKNOWN = "unknown"
+UNKNOWN_BUDGET_POINTS = 10
+# An amount that is not an exact client figure never earns the top tiers.
+NON_EXACT_BUDGET_POINTS_CAP = 21
+
+# Direct contact (Reddit / HN / job boards) has no public bidding war, but the real amount of
+# competition is unknown, so it earns less than the best case of a bidding platform.
 BIDDING_SOURCES = frozenset({"freelancer"})
-UNKNOWN_BIDS_POINTS = 10
+DIRECT_CONTACT_POINTS = 9
+UNKNOWN_BIDS_POINTS = 4
 
 _AMOUNT = re.compile(r"[$€£]\s?(\d[\d,]*(?:\.\d+)?)\s?(k\b)?", re.IGNORECASE)
 _HOURLY = re.compile(r"(?:/|\bper\s)\s?(?:hr|hour)\b|\bhourly\b", re.IGNORECASE)
@@ -53,6 +70,7 @@ class ScoreResult:
     valid: bool = True
     parts: dict[str, int] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
+    facts: dict[str, Any] = field(default_factory=dict)
 
     def describe(self) -> str:
         breakdown = " ".join(f"{name}={points:+d}" for name, points in self.parts.items())
@@ -77,33 +95,32 @@ def budget_points(amount_usd: float | None, hourly: bool) -> int:
     if amount_usd is None:
         return UNKNOWN_BUDGET_POINTS
     tiers = (
-        ((60, 30), (35, 24), (20, 16), (12, 8))
+        ((60, 25), (35, 20), (20, 14), (12, 7))
         if hourly
-        else ((3000, 30), (1500, 26), (750, 21), (300, 15), (150, 8))
+        else ((3000, 25), (1500, 21), (750, 17), (300, 12), (150, 6))
     )
     for threshold, points in tiers:
         if amount_usd >= threshold:
             return points
-    return 2 if hourly else 3
+    return 2
 
 
-def detail_points(length: int) -> int:
-    for threshold, points in ((1200, 10), (600, 7), (300, 4), (120, 2)):
-        if length >= threshold:
-            return points
-    return 0
+def representative_amount(low: float, high: float) -> float:
+    """Typical value of a budget range: the geometric mean, so a 250-750 preset counts as ~430."""
+    if low > 0 and high >= low:
+        return math.sqrt(low * high)
+    return max(low, high)
 
 
 def competition_points(source: str, bids: Any) -> int:
     if source in BIDDING_SOURCES:
         if not isinstance(bids, (int, float)):
             return UNKNOWN_BIDS_POINTS
-        for limit, points in ((5, 15), (15, 11), (30, 7), (60, 3)):
+        for limit, points in ((5, 12), (15, 8), (30, 5), (60, 2)):
             if bids <= limit:
                 return points
         return 0
-    # Reddit / HN / job boards: the client is contacted directly, no public bidding war.
-    return 12
+    return DIRECT_CONTACT_POINTS
 
 
 def freshness_points(raw: RawLead) -> int:
@@ -116,12 +133,11 @@ def freshness_points(raw: RawLead) -> int:
     return 1
 
 
-def clarity_points(value: Any) -> int:
+def clarity_rating(value: Any) -> int:
     try:
-        rating = max(1, min(5, int(round(float(value)))))
+        return max(1, min(5, int(round(float(value)))))
     except (TypeError, ValueError):
-        rating = 2
-    return round((rating - 1) * 3.75)
+        return 2
 
 
 def normalize_flags(value: Any) -> set[str]:
@@ -136,35 +152,70 @@ def normalize_engagement(value: Any) -> str:
     return text if text in ENGAGEMENT_POINTS else "unclear"
 
 
+def normalize_geo(value: Any) -> str:
+    text = re.sub(r"[^a-z]+", "_", str(value or "").lower()).strip("_")
+    return text if text in GEO_RESTRICTIONS else "unknown"
+
+
+def normalize_remote_digital(value: Any) -> bool | None:
+    """True/False when the LLM committed to an answer, None when it did not say."""
+    if isinstance(value, bool):
+        return value
+    text = str(value or "").strip().lower()
+    if text in {"true", "yes", "1"}:
+        return True
+    if text in {"false", "no", "0"}:
+        return False
+    return None
+
+
+def _budget(raw: RawLead) -> tuple[str, float | None, bool]:
+    """(provenance, amount in USD, hourly) from scraper data or the post text."""
+    extra = raw.extra or {}
+    high = extra.get("budget_usd_max")
+    if isinstance(high, (int, float)) and high > 0:
+        low = extra.get("budget_usd_min")
+        low = float(low) if isinstance(low, (int, float)) else 0.0
+        hourly = extra.get("type") == "hourly"
+        if extra.get("budget_kind", BUDGET_PLATFORM_RANGE) == BUDGET_EXPLICIT:
+            return BUDGET_EXPLICIT, float(high), hourly
+        return BUDGET_PLATFORM_RANGE, representative_amount(low, float(high)), hourly
+    amount, hourly = parse_amount_usd(f"{raw.title}\n{raw.body}")
+    if amount is not None:
+        return BUDGET_EXPLICIT, amount, hourly
+    return BUDGET_UNKNOWN, None, False
+
+
 def score_lead(raw: RawLead, facts: Mapping[str, Any]) -> ScoreResult:
     """Score one lead from LLM-extracted `facts` and the scraper's own data."""
     flags = normalize_flags(facts.get("red_flags"))
     if flags & FATAL_FLAGS:
         return ScoreResult(0, valid=False, notes=[f"disqualified: {', '.join(sorted(flags & FATAL_FLAGS))}"])
+    remote_digital = normalize_remote_digital(facts.get("remote_digital"))
+    if remote_digital is False:
+        return ScoreResult(0, valid=False, notes=["not remote digital work"])
 
-    extra = raw.extra or {}
     notes: list[str] = []
-
-    structured = extra.get("budget_usd_max")
-    if isinstance(structured, (int, float)) and structured > 0:
-        hourly = extra.get("type") == "hourly"
-        budget = budget_points(float(structured), hourly)
-    else:
-        amount, hourly = parse_amount_usd(f"{raw.title}\n{raw.body}")
-        budget = budget_points(amount, hourly)
-        if amount is not None:
-            budget = min(budget, TEXT_BUDGET_POINTS_CAP)
-
     engagement = normalize_engagement(facts.get("engagement"))
+    geo = normalize_geo(facts.get("geo_restriction"))
+    rating = clarity_rating(facts.get("scope_clarity"))
+    kind, amount, hourly = _budget(raw)
+
+    budget = budget_points(amount, hourly)
+    if kind != BUDGET_EXPLICIT and amount is not None:
+        budget = min(budget, NON_EXACT_BUDGET_POINTS_CAP)
+
     parts = {
         "base": 10,
         "budget": budget,
-        "scope": clarity_points(facts.get("scope_clarity")),
-        "detail": detail_points(len((raw.body or "").strip())),
-        "competition": competition_points(raw.source, extra.get("bids")),
+        "scope": (rating - 1) * 5,
+        "competition": competition_points(raw.source, (raw.extra or {}).get("bids")),
         "fresh": freshness_points(raw),
         "engagement": ENGAGEMENT_POINTS[engagement],
     }
+    if GEO_PENALTY[geo]:
+        parts["geo"] = -GEO_PENALTY[geo]
+        notes.append(f"geo: {geo}")
     soft = sorted(flags & SOFT_FLAGS)
     if soft:
         parts["flags"] = -RED_FLAG_PENALTY * len(soft)
@@ -174,4 +225,21 @@ def score_lead(raw: RawLead, facts: Mapping[str, Any]) -> ScoreResult:
     if engagement == "full_time_job" and score > FULL_TIME_SCORE_CAP:
         score = FULL_TIME_SCORE_CAP
         notes.append("capped: permanent full-time role")
-    return ScoreResult(score, parts=parts, notes=notes)
+
+    return ScoreResult(
+        score,
+        parts=parts,
+        notes=notes,
+        facts={
+            "v": SCORE_VERSION,
+            "engagement": engagement,
+            "scope_clarity": rating,
+            "remote_digital": remote_digital,
+            "geo": geo,
+            "red_flags": sorted(flags),
+            "budget_kind": kind,
+            "budget_usd": round(amount) if amount is not None else None,
+            "bids": (raw.extra or {}).get("bids"),
+            "parts": parts,
+        },
+    )

@@ -1,6 +1,7 @@
 """Data models shared by scrapers, the AI analyzer, the notifier and the database."""
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -111,6 +112,17 @@ def _coerce_int_or_none(value: Any) -> int | None:
         return None
 
 
+def _load_facts(stored: str) -> dict[str, Any]:
+    """Facts JSON kept in `pitch_template_en` (older rows hold a plain-text pitch instead)."""
+    if not stored.startswith("{"):
+        return {}
+    try:
+        data = json.loads(stored)
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def normalize_category(value: Any, default: str = config.CATEGORY_OTHER) -> str:
     """Map free-form LLM/user category text onto a known category constant."""
     text = re.sub(r"[^A-Z]+", "_", str(value or "").upper()).strip("_")
@@ -175,6 +187,9 @@ class AnalyzedLead:
     summary_en: str = ""
     winning_pitch_en: str = ""
     client_pain_point: str = ""
+    # Facts the LLM extracted plus the score breakdown (see src/scoring.py). Stored as JSON in the
+    # legacy `pitch_template_en` column, which the Telegram product no longer uses for pitches.
+    facts: dict[str, Any] = field(default_factory=dict)
     is_actual_client_hiring: bool = True
     sent_to_vip: int = 0
     sent_to_free: int = 0
@@ -233,7 +248,7 @@ class AnalyzedLead:
             "quality_score": int(self.quality_score),
             "estimated_budget": self.estimated_budget,
             "summary_en": self.summary_en,
-            "pitch_template_en": self.winning_pitch_en,
+            "pitch_template_en": self.winning_pitch_en or (json.dumps(self.facts, separators=(",", ":")) if self.facts else ""),
             "client_pain_point": self.client_pain_point,
             "sent_to_vip": int(self.sent_to_vip),
             "sent_to_free": int(self.sent_to_free),
@@ -242,6 +257,8 @@ class AnalyzedLead:
     @classmethod
     def from_db_row(cls, row: Mapping[str, Any]) -> "AnalyzedLead":
         score = _coerce_score(row.get("quality_score"))
+        stored = str(row.get("pitch_template_en") or "")
+        facts = _load_facts(stored)
         return cls(
             item_id=str(row["item_id"]),
             source=str(row.get("source") or ""),
@@ -251,7 +268,8 @@ class AnalyzedLead:
             quality_score=score,
             estimated_budget=str(row.get("estimated_budget") or "Not specified"),
             summary_en=str(row.get("summary_en") or ""),
-            winning_pitch_en=str(row.get("pitch_template_en") or ""),
+            winning_pitch_en="" if facts else stored,
+            facts=facts,
             client_pain_point=str(row.get("client_pain_point") or ""),
             is_actual_client_hiring=score > 0,
             sent_to_vip=int(row.get("sent_to_vip") or 0),
