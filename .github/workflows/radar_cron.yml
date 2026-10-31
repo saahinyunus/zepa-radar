@@ -41,7 +41,7 @@ jobs:
         env:
           EXECUTION_MODE: TELEGRAM_SAAS
           # Paused until the LIVE Lemon Squeezy checkout link is configured; then set to "true".
-          FREE_CHANNEL_ENABLED: "false"
+          FREE_CHANNEL_ENABLED: "true"
           PYTHONUNBUFFERED: "1"
           PYTHONUTF8: "1"
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
