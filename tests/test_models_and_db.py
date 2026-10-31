@@ -118,3 +118,31 @@ async def test_mark_sent_vip_still_works_for_rows_without_facts(db):
     await db.save_lead(make_lead("reddit:old"))
     await db.mark_sent_vip("reddit:old")
     assert await db.count_vip_sent_since(utc_now() - timedelta(hours=1)) == 1
+
+
+async def _age(db, item_id, hours):
+    created = (utc_now() - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+    await db._run(lambda conn: conn.execute(
+        "UPDATE processed_leads SET created_at = ? WHERE item_id = ?", (created, item_id)))
+
+
+async def test_free_channel_only_gets_leads_inside_the_age_window(db, monkeypatch):
+    monkeypatch.setattr(config, "VIP_MIN_SCORE", 60)
+    monkeypatch.setattr(config, "FREE_DELAY_HOURS", 4.0)
+    monkeypatch.setattr(config, "FREE_MAX_AGE_HOURS", 30.0)
+    for item_id, hours in (("fresh", 1), ("due", 5), ("old", 31), ("ancient", 120)):
+        await db.save_lead(make_lead(item_id))
+        await db.mark_sent_vip(item_id)
+        await _age(db, item_id, hours)
+    assert [lead.item_id for lead in await db.get_due_free_leads()] == ["due"]
+
+
+async def test_free_teaser_states_the_real_age(db):
+    from src.telegram_notifier import age_label
+    await db.save_lead(make_lead("a"))
+    for hours, expected in ((1, "4 hours"), (7, "7 hours"), (25, "1 day"), (60, "2 days")):
+        await _age(db, "a", hours)
+        row = (await db._run(lambda conn: conn.execute("SELECT * FROM processed_leads").fetchall()))[0]
+        lead = AnalyzedLead.from_db_row(dict(row))
+        assert age_label(lead) == expected
+    assert "[2 DAYS AGO]" in format_free_message(lead)

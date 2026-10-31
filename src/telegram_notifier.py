@@ -17,7 +17,7 @@ import httpx
 
 from src import config
 from src.database import BaseDatabase
-from src.models import AnalyzedLead
+from src.models import AnalyzedLead, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,18 @@ def _hours_label(hours: float) -> str:
     return f"{hours:g}"
 
 
+def age_label(lead: AnalyzedLead) -> str:
+    """'5 hours' / '1 day' / '2 days': the lead's real age, never younger than the Free delay."""
+    hours = config.FREE_DELAY_HOURS
+    if lead.created_at is not None:
+        hours = max(hours, (utc_now() - lead.created_at).total_seconds() / 3600)
+    if hours >= 24:
+        days = int(hours // 24)
+        return f"{days} day" + ("s" if days != 1 else "")
+    whole = max(1, int(hours))
+    return f"{whole} hour" + ("s" if whole != 1 else "")
+
+
 def format_vip_message(lead: AnalyzedLead) -> str:
     """HTML message for the VIP topic. Shrinks long fields until it fits Telegram's limit."""
     category = config.CATEGORY_DISPLAY_NAMES.get(lead.category, lead.category)
@@ -65,13 +77,13 @@ def format_vip_message(lead: AnalyzedLead) -> str:
 def format_free_message(lead: AnalyzedLead) -> str:
     """HTML teaser for the Free channel (no link to the client's post)."""
     category = config.CATEGORY_DISPLAY_NAMES.get(lead.category, lead.category)
-    hours = _hours_label(config.FREE_DELAY_HOURS)
+    age = age_label(lead)
     return (
-        f"⏳ <b>[{hours} HOURS AGO] {_esc(category)} Lead Captured by VIP Radar</b>\n\n"
+        f"⏳ <b>[{age.upper()} AGO] {_esc(category)} Lead Captured by VIP Radar</b>\n\n"
         f"{_esc(_clip(lead.summary_en, 700))}\n"
         f"💰 Budget: {_esc(lead.estimated_budget or 'Not specified')}\n\n"
         f"🔒 <i>The direct client link was delivered to VIP members "
-        f"{hours} hours ago. Don't miss the next client!</i>"
+        f"{age} ago. Don't miss the next client!</i>"
     )
 
 
@@ -80,7 +92,7 @@ def format_free_cta() -> str:
     hours = _hours_label(config.FREE_DELAY_HOURS)
     return (
         "💎 <b>Want leads like these in real time?</b>\n\n"
-        f"Everything above reached Zepa Radar VIP members {hours} hours ago, with the direct link to the "
+        f"Everything above reached Zepa Radar VIP members at least {hours} hours earlier, with the direct link to the "
         "client's post. VIP members apply first.\n\n"
         "👇 Join VIP for $19/month. Cancel any time."
     )

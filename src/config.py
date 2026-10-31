@@ -155,6 +155,9 @@ VIP_MAX_PER_RUN = _env_int("VIP_MAX_PER_RUN", 4)
 # Fewer strong leads beat a full quota: nothing is posted just to fill it. 0 disables the cap.
 VIP_DAILY_CAP = _env_int("VIP_DAILY_CAP", 20)
 FREE_DELAY_HOURS = _env_float("FREE_DELAY_HOURS", 4.0)
+# Teasers are labelled with the lead's real age, so leads older than this never go to the Free channel
+# (an old backlog must not appear as "just captured").
+FREE_MAX_AGE_HOURS = _env_float("FREE_MAX_AGE_HOURS", 30.0)
 # The Free channel gets one batch of teasers every N hours (UTC hours divisible by N), closed by a
 # "Join VIP" message, instead of a trickle after every run. 0 or 1 posts on every run.
 FREE_POST_EVERY_HOURS = _env_int("FREE_POST_EVERY_HOURS", 3)

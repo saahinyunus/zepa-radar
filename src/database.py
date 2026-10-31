@@ -207,7 +207,7 @@ class BaseDatabase(ABC):
 
     @abstractmethod
     async def get_due_free_leads(self, limit: int = 20) -> list[AnalyzedLead]:
-        """VIP-delivered leads older than FREE_DELAY_HOURS that are not yet in the Free channel."""
+        """VIP-delivered leads aged FREE_DELAY_HOURS..FREE_MAX_AGE_HOURS that are not yet in the Free channel."""
         raise NotImplementedError
 
     @abstractmethod
@@ -361,13 +361,15 @@ class SQLiteDatabase(BaseDatabase):
 
     async def get_due_free_leads(self, limit: int = 20) -> list[AnalyzedLead]:
         cutoff = format_db_timestamp(utc_now() - timedelta(hours=config.FREE_DELAY_HOURS))
+        oldest = format_db_timestamp(utc_now() - timedelta(hours=config.FREE_MAX_AGE_HOURS))
 
         def operation(conn: sqlite3.Connection) -> list[AnalyzedLead]:
             rows = conn.execute(
                 "SELECT * FROM processed_leads "
-                "WHERE quality_score >= ? AND sent_to_vip = 1 AND sent_to_free = 0 AND created_at <= ? "
+                "WHERE quality_score >= ? AND sent_to_vip = 1 AND sent_to_free = 0 "
+                "AND created_at <= ? AND created_at >= ? "
                 "ORDER BY created_at ASC LIMIT ?",
-                (config.VIP_MIN_SCORE, cutoff, limit),
+                (config.VIP_MIN_SCORE, cutoff, oldest, limit),
             ).fetchall()
             return [AnalyzedLead.from_db_row(dict(row)) for row in rows]
 
@@ -651,6 +653,7 @@ class SupabaseDatabase(BaseDatabase):
 
     async def get_due_free_leads(self, limit: int = 20) -> list[AnalyzedLead]:
         cutoff = (utc_now() - timedelta(hours=config.FREE_DELAY_HOURS)).isoformat()
+        oldest = (utc_now() - timedelta(hours=config.FREE_MAX_AGE_HOURS)).isoformat()
         response = await self._request(
             "GET",
             LEADS_TABLE,
@@ -659,7 +662,7 @@ class SupabaseDatabase(BaseDatabase):
                 "quality_score": f"gte.{config.VIP_MIN_SCORE}",
                 "sent_to_vip": "eq.1",
                 "sent_to_free": "eq.0",
-                "created_at": f"lte.{cutoff}",
+                "and": f"(created_at.lte.{cutoff},created_at.gte.{oldest})",
                 "order": "created_at.asc",
                 "limit": str(limit),
             },
