@@ -63,6 +63,10 @@ ACTIVATE_EVENTS = frozenset(
     }
 )
 INACTIVE_LEMON_STATUSES = frozenset({"expired", "cancelled", "unpaid", "paused"})
+# subscription_updated fires on every change; only these statuses take access away
+# (past_due keeps it: Lemon Squeezy is still retrying the card).
+LOSS_OF_ACCESS_UPDATES = frozenset({"subscription_updated", "subscription_paused"})
+LOSS_OF_ACCESS_STATUSES = frozenset({"unpaid", "expired", "paused"})
 JOINED_STATUSES = frozenset({"member", "administrator", "creator", "restricted"})
 LEFT_STATUSES = frozenset({"left", "kicked"})
 EMAIL_PATTERN = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
@@ -209,6 +213,10 @@ class SubscriptionService:
             if event.event_name == "subscription_expired":
                 await self._deactivate(event, SUBSCRIBER_STATUS_EXPIRED)
                 return "expired"
+            if event.event_name in LOSS_OF_ACCESS_UPDATES and event.lemon_status in LOSS_OF_ACCESS_STATUSES:
+                # Payment retries failed (unpaid) or the subscription was paused: access ends now.
+                await self._deactivate(event, SUBSCRIBER_STATUS_EXPIRED)
+                return "expired"
             if event.event_name == "subscription_cancelled":
                 if event.ends_at is None or event.ends_at <= utc_now():
                     await self._deactivate(event, SUBSCRIBER_STATUS_CANCELLED)
@@ -307,7 +315,9 @@ class SubscriptionService:
 
         text = str(message.get("text") or "").strip()
         match = EMAIL_PATTERN.search(text)
-        reply = START_TEXT if not match else await self.claim_by_email(user_id, match.group(0))
+        # "<me@x.com>" or "me@x.com." are typed all the time; drop the wrapping punctuation.
+        email = match.group(0).strip("<>()[]{}\"'.,;:!?") if match else ""
+        reply = START_TEXT if not match else await self.claim_by_email(user_id, email)
         await self.notifier.call_api(
             "sendMessage",
             {"chat_id": chat_id, "text": reply, "parse_mode": "HTML", "disable_web_page_preview": True},
@@ -323,8 +333,12 @@ class SubscriptionService:
                 # Either a typo or a buyer whose webhook never arrived: the operator should know.
                 await self._tell_admin(f"Bot lookup found no active subscription for {email} (Telegram user {telegram_user_id}).")
                 checkout = config.LEMON_SQUEEZY_CHECKOUT_URL
-                suffix = f"\n\nSubscribe here: {html.escape(checkout)}" if checkout else ""
-                return "❌ I couldn't find an active subscription for that e-mail." + suffix
+                suffix = f"\n\nNot subscribed yet? {html.escape(checkout)}" if checkout else ""
+                return (
+                    "❌ I couldn't find an active subscription for that e-mail.\n\n"
+                    "• Use the exact e-mail address you entered at checkout (it is on your receipt).\n"
+                    "• If you paid just now, wait a minute and send it again."
+                ) + suffix
 
             subscriber = active[0]
             if subscriber.telegram_user_id not in (None, telegram_user_id):

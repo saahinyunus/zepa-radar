@@ -124,5 +124,25 @@ async def test_a_failing_admin_alert_does_not_fail_the_event(service):
     assert await service.handle_event(parse_event(payload("subscription_created"))) == "activated"
 
 
+async def test_failed_payments_and_pauses_take_access_away_but_past_due_does_not(service):
+    await service.handle_event(parse_event(payload("subscription_created")))
+    assert await service.handle_event(parse_event(payload("subscription_updated", status="past_due"))) == "ignored"
+    assert await service.handle_event(parse_event(payload("subscription_updated", status="active"))) == "ignored"
+    assert (await service.db.get_subscriber("42")).status == "active"
+    assert await service.handle_event(parse_event(payload("subscription_updated", status="unpaid"))) == "expired"
+    assert (await service.db.get_subscriber("42")).status == "expired"
+
+
+async def test_bot_reply_survives_typical_email_typing(service):
+    await service.handle_event(parse_event(payload("subscription_created")))
+    for text in ("Buyer@Example.com", "my email is <buyer@example.com>.", "buyer@example.com,"):
+        reply = await service._handle_private_message(
+            {"chat": {"id": 9, "type": "private"}, "from": {"id": 9}, "text": text}
+        )
+        assert reply == "replied"
+    sent = [p["text"] for m, p in service.notifier.calls if m == "sendMessage"]
+    assert len(sent) == 3 and all("Subscription found" in t for t in sent)
+
+
 def test_the_module_still_imports_the_app():
     assert hasattr(lemon_webhook, "app")
