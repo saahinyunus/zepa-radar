@@ -16,6 +16,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime
 
 from src import config
 from src.ai_analyzer import AIAnalyzer
@@ -64,6 +65,12 @@ async def vip_allowance(db: BaseDatabase) -> int:
         allowance = min(allowance, max(0, config.VIP_DAILY_CAP - sent_today))
         logger.info("VIP allowance %d (daily cap %d, already sent today %d)", allowance, config.VIP_DAILY_CAP, sent_today)
     return allowance
+
+
+def free_batch_due(now: datetime | None = None) -> bool:
+    """True during the UTC hours in which the Free channel gets its batch (every FREE_POST_EVERY_HOURS)."""
+    every = config.FREE_POST_EVERY_HOURS
+    return every <= 1 or (now or utc_now()).hour % every == 0
 
 
 async def run_cycle(
@@ -126,8 +133,12 @@ async def run_cycle(
         stats.errors += 1
         logger.exception("VIP delivery phase failed")
 
-    # 6. Free channel teasers for leads older than FREE_DELAY_HOURS
-    if config.FREE_CHANNEL_ENABLED:
+    # 6. Free channel teasers for leads older than FREE_DELAY_HOURS, one batch every FREE_POST_EVERY_HOURS
+    if not config.FREE_CHANNEL_ENABLED:
+        logger.info("Free channel delivery is paused (FREE_CHANNEL_ENABLED=false)")
+    elif not free_batch_due():
+        logger.info("Free channel: next batch is not due this hour")
+    else:
         try:
             due = await db.get_due_free_leads(limit=FREE_BATCH_LIMIT)
             if due:
@@ -135,8 +146,6 @@ async def run_cycle(
         except Exception:  # noqa: BLE001
             stats.errors += 1
             logger.exception("Free channel phase failed")
-    else:
-        logger.info("Free channel delivery is paused (FREE_CHANNEL_ENABLED=false)")
 
     # 7. housekeeping
     if utc_now().minute < CLEANUP_MINUTE_WINDOW:
@@ -191,13 +200,19 @@ def _print_dry_run(leads: list[AnalyzedLead]) -> None:
 
 
 async def amain(dry_run: bool) -> int:
-    problems = config.validate_config(config.MODE_TELEGRAM_SAAS)
+    free_problems = config.free_channel_problems()
+    problems = [p for p in config.validate_config(config.MODE_TELEGRAM_SAAS) if p not in free_problems]
     if dry_run:
         problems = [problem for problem in problems if problem.startswith("GROQ")]
     if problems:
         for problem in problems:
             logger.error("Config error: %s", problem)
         return 1
+    if free_problems:
+        # The Free channel is only the funnel: do not let a missing setting stop the VIP feed.
+        for problem in free_problems:
+            logger.error("Free channel switched off for this run: %s", problem)
+        config.FREE_CHANNEL_ENABLED = False
 
     if os.getenv("GITHUB_ACTIONS") and not (config.SUPABASE_URL and config.SUPABASE_KEY):
         logger.warning(
@@ -208,6 +223,8 @@ async def amain(dry_run: bool) -> int:
     try:
         async with create_database() as db, AIAnalyzer() as analyzer, TelegramNotifier() as notifier:
             stats = await run_cycle(db, analyzer, notifier, dry_run=dry_run)
+            if free_problems and not dry_run:
+                await notifier.send_admin_alert("The Free channel is OFF, VIP is unaffected:\n" + "\n".join(free_problems))
     except DatabaseError:
         logger.exception("Database unavailable - aborting cycle")
         return 1

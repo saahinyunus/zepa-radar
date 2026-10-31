@@ -155,6 +155,9 @@ VIP_MAX_PER_RUN = _env_int("VIP_MAX_PER_RUN", 4)
 # Fewer strong leads beat a full quota: nothing is posted just to fill it. 0 disables the cap.
 VIP_DAILY_CAP = _env_int("VIP_DAILY_CAP", 20)
 FREE_DELAY_HOURS = _env_float("FREE_DELAY_HOURS", 4.0)
+# The Free channel gets one batch of teasers every N hours (UTC hours divisible by N), closed by a
+# "Join VIP" message, instead of a trickle after every run. 0 or 1 posts on every run.
+FREE_POST_EVERY_HOURS = _env_int("FREE_POST_EVERY_HOURS", 3)
 # Set FREE_CHANNEL_ENABLED=false to pause the delayed Free-channel teasers (e.g. until the
 # live checkout link exists). VIP delivery is not affected.
 FREE_CHANNEL_ENABLED = _env_str("FREE_CHANNEL_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
@@ -471,6 +474,18 @@ def passes_prefilter(title: str, body: str = "", *, trusted_source: bool = False
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
+def free_channel_problems() -> list[str]:
+    """What the Free channel is missing. Not fatal: the paid VIP feed must keep running without it."""
+    if not FREE_CHANNEL_ENABLED:
+        return []
+    problems = []
+    if not TELEGRAM_FREE_CHANNEL_ID:
+        problems.append("TELEGRAM_FREE_CHANNEL_ID is not set.")
+    if not LEMON_SQUEEZY_CHECKOUT_URL:
+        problems.append("LEMON_SQUEEZY_CHECKOUT_URL is not set (needed for the Free-channel button).")
+    return problems
+
+
 def validate_config(mode: str | None = None) -> list[str]:
     """Return a list of human-readable configuration problems (empty == OK)."""
     mode = (mode or EXECUTION_MODE).upper()
@@ -492,11 +507,7 @@ def validate_config(mode: str | None = None) -> list[str]:
             problems.append("TELEGRAM_BOT_TOKEN is not set.")
         if not TELEGRAM_VIP_GROUP_ID:
             problems.append("TELEGRAM_VIP_GROUP_ID is not set.")
-        if FREE_CHANNEL_ENABLED:
-            if not TELEGRAM_FREE_CHANNEL_ID:
-                problems.append("TELEGRAM_FREE_CHANNEL_ID is not set.")
-            if not LEMON_SQUEEZY_CHECKOUT_URL:
-                problems.append("LEMON_SQUEEZY_CHECKOUT_URL is not set (needed for the Free-channel button).")
+        problems.extend(free_channel_problems())
         for category, topic_id in CATEGORY_TOPIC_IDS.items():
             if topic_id is None:
                 problems.append(f"Topic ID for {category} is not set (TOPIC_ID_* variables).")

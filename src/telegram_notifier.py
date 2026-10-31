@@ -75,6 +75,17 @@ def format_free_message(lead: AnalyzedLead) -> str:
     )
 
 
+def format_free_cta() -> str:
+    """Closing message of a Free-channel batch: the pitch for the paid group."""
+    hours = _hours_label(config.FREE_DELAY_HOURS)
+    return (
+        "💎 <b>Want leads like these in real time?</b>\n\n"
+        f"Everything above reached Zepa Radar VIP members {hours} hours ago, with the direct link to the "
+        "client's post. VIP members apply first.\n\n"
+        "👇 Join VIP for $19/month. Cancel any time."
+    )
+
+
 def vip_keyboard(lead: AnalyzedLead) -> dict[str, Any] | None:
     if not _is_http_url(lead.url):
         return None
@@ -256,6 +267,9 @@ class TelegramNotifier:
                 await db.mark_sent_free(lead.item_id)
                 sent += 1
         logger.info("Free: %d/%d teaser(s) delivered", sent, len(leads))
+        if sent and self.free_channel_id and (keyboard := free_keyboard()) is not None:
+            if not await self._send_message(self.free_channel_id, format_free_cta(), keyboard=keyboard):
+                logger.warning("Free channel: the closing Join VIP message was not delivered")
         return sent
 
 
