@@ -10,6 +10,7 @@ from src import config
 from src.models import RawLead
 from src.scrapers.base_scraper import BaseScraper, build_http_client
 from src.scrapers.freelancer_scraper import FreelancerScraper
+from src.scrapers.himalayas_scraper import HimalayasScraper
 from src.scrapers.hn_scraper import HackerNewsScraper
 from src.scrapers.jobboards_scraper import JobBoardsScraper
 from src.scrapers.reddit_scraper import RedditScraper
@@ -21,6 +22,7 @@ SCRAPER_CLASSES: dict[str, type[BaseScraper]] = {
     "hackernews": HackerNewsScraper,
     "jobboards": JobBoardsScraper,
     "freelancer": FreelancerScraper,
+    "himalayas": HimalayasScraper,
 }
 
 
@@ -52,7 +54,7 @@ async def scrape_all(
     * `apply_prefilter`: drop "for hire" posts and posts without hiring signals.
     * `custom_keywords`: keep only leads mentioning at least one keyword (Apify input).
     * `rotate_reddit`: fetch only a random subset of Reddit groups (scheduled runs).
-    * `throttle_boards`: poll rate-limited job boards (Jobicy) at most hourly (scheduled runs).
+    * `throttle_boards`: poll rate-limited job boards (Jobicy, Himalayas) rarely (scheduled runs).
     * `report`: optional dict filled with {scraper: {"leads": n, "http": {host:status: count}}}.
 
     The result is sorted newest first.
@@ -74,7 +76,7 @@ async def scrape_all(
             options: dict[str, object] = {"client": client, "max_age_minutes": max_age_minutes}
             if name == "reddit":
                 options["rotate"] = rotate_reddit
-            elif name == "jobboards":
+            elif name in ("jobboards", "himalayas"):
                 options["throttle"] = throttle_boards
             scrapers.append(SCRAPER_CLASSES[name](**options))
         batches = await asyncio.gather(*(scraper.scrape() for scraper in scrapers))
@@ -124,6 +126,7 @@ __all__ = [
     "BaseScraper",
     "FreelancerScraper",
     "HackerNewsScraper",
+    "HimalayasScraper",
     "JobBoardsScraper",
     "RedditScraper",
     "SCRAPER_CLASSES",

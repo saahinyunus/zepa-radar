@@ -32,7 +32,7 @@ Freelancers and small agencies lose hours every week sorting through "for hire" 
 - **Reddit**: dozens of communities where people post jobs and project requests, from r/forhire and r/DesignJobs to startup, SaaS, marketing and creator communities
 - **Hacker News**: hiring and "looking for" posts and comments
 - **Freelancer.com**: fresh client projects with stated budgets
-- **Remote job boards**: RemoteOK, Remotive, Jobicy, Arbeitnow and We Work Remotely (only freelance, contract and part-time roles)
+- **Remote job boards**: RemoteOK, Jobicy, We Work Remotely and Himalayas (only freelance, contract and part-time roles)
 
 All sources are public. No logins, no proxies and no private data.
 

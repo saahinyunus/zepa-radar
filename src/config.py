@@ -285,6 +285,9 @@ REDDIT_SUBREDDIT_GROUPS: dict[str, tuple[str, ...]] = {
     "direct_jobs": (
         "forhire", "DesignJobs", "hireaneditor", "CreatorServices", "VideoEditing",
         "hungryartists", "DoneDirtCheap", "slavelabour", "jobbit", "Jobs4Bitcoins",
+        # Added after a probe: real hiring posts. One combined feed request covers all of them.
+        "hiring", "gameDevJobs", "gamedevclassifieds", "RemoteJobs", "SEOjobs", "PythonJobs", "WebDevJobs",
+        "HireaWriter",
     ),
     # Group 2 - software / SaaS / small-business clients
     "software_saas": (
@@ -367,6 +370,13 @@ ENABLED_JOB_BOARDS = frozenset(
     if item.strip()
 )
 
+# Himalayas remote-jobs API (free, no key, newest first, 20 per page, cursor paging). Only roles it
+# labels contract / part time / temporary are kept; it refreshes about daily, so it is polled rarely.
+HIMALAYAS_API_URL = "https://himalayas.app/jobs/api"
+HIMALAYAS_MAX_PAGES = _env_int("HIMALAYAS_MAX_PAGES", 4)
+HIMALAYAS_POLL_HOURS = max(1, _env_int("HIMALAYAS_POLL_HOURS", 3))
+HIMALAYAS_FLEXIBLE_TYPES = frozenset({"contractor", "part time", "temporary"})
+
 # Freelancer.com public projects API (no key). Every project is a client request.
 FREELANCER_API_URL = "https://www.freelancer.com/api/projects/0.1/projects/active/"
 FREELANCER_FETCH_LIMIT = 100
@@ -377,7 +387,7 @@ FREELANCER_MIN_HOURLY_USD = _env_int("FREELANCER_MIN_HOURLY_USD", 12)
 
 # Sources whose every entry is a hiring post (no "for hire" noise).
 TRUSTED_HIRING_SOURCES = frozenset(
-    {"remoteok", "jobicy", "arbeitnow", "weworkremotely", "freelancer"}
+    {"remoteok", "jobicy", "arbeitnow", "weworkremotely", "freelancer", "himalayas"}
 )
 
 

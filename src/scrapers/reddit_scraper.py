@@ -43,6 +43,10 @@ SUBREDDIT_CATEGORY_HINTS = {
     "nocode": config.CATEGORY_SOFTWARE,
     "automate": config.CATEGORY_SOFTWARE,
     "saas": config.CATEGORY_SOFTWARE,
+    "pythonjobs": config.CATEGORY_SOFTWARE,
+    "webdevjobs": config.CATEGORY_SOFTWARE,
+    "seojobs": config.CATEGORY_MARKETING_WRITING,
+    "hireawriter": config.CATEGORY_MARKETING_WRITING,
     "microsaas": config.CATEGORY_SOFTWARE,
 }
 
