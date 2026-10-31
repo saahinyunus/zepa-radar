@@ -181,7 +181,20 @@ class SubscriptionService:
             raise ProcessingError(f"Could not remove user {subscriber.telegram_user_id} from the VIP group")
 
     # --- Lemon Squeezy events ----------------------------------------------
+    async def _tell_admin(self, text: str) -> None:
+        """Best-effort note to the operator; a failure here must never fail the webhook."""
+        try:
+            await self.notifier.send_admin_alert(text, title="💰 Zepa Radar VIP")
+        except Exception:  # noqa: BLE001
+            logger.warning("Admin notification failed", exc_info=True)
+
     async def handle_event(self, event: SubscriptionEvent) -> str:
+        result = await self._handle_event(event)
+        if result in ("activated", "expired", "cancelled_removed", "cancelled_until_period_end"):
+            await self._tell_admin(f"{event.event_name} -> {result}\nsubscription {event.subscription_id}, {event.email}")
+        return result
+
+    async def _handle_event(self, event: SubscriptionEvent) -> str:
         if event.test_mode and not config.LEMON_SQUEEZY_ALLOW_TEST_MODE:
             logger.warning("Ignoring test-mode event %s for %s", event.event_name, event.subscription_id)
             return "ignored_test_mode"
@@ -282,6 +295,7 @@ class SubscriptionService:
                 return "kicked_wrong_account"
             if subscriber.telegram_user_id is None:
                 await self.db.set_telegram_user_id(subscriber.subscription_id, user_id)
+            await self._tell_admin(f"A subscriber joined the VIP group (subscription {subscriber.subscription_id}).")
             return "linked"
 
     async def _handle_private_message(self, message: dict[str, Any]) -> str:
@@ -306,6 +320,8 @@ class SubscriptionService:
             subscribers = await self.db.get_subscribers_by_email(email)
             active = [s for s in subscribers if s.status == SUBSCRIBER_STATUS_ACTIVE]
             if not active:
+                # Either a typo or a buyer whose webhook never arrived: the operator should know.
+                await self._tell_admin(f"Bot lookup found no active subscription for {email} (Telegram user {telegram_user_id}).")
                 checkout = config.LEMON_SQUEEZY_CHECKOUT_URL
                 suffix = f"\n\nSubscribe here: {html.escape(checkout)}" if checkout else ""
                 return "❌ I couldn't find an active subscription for that e-mail." + suffix

@@ -19,6 +19,11 @@ class FakeNotifier:
 
     def __init__(self):
         self.calls = []
+        self.alerts = []
+
+    async def send_admin_alert(self, text, title=""):
+        self.alerts.append(text)
+        return True
 
     async def call_api(self, method, payload):
         self.calls.append((method, payload))
@@ -99,6 +104,24 @@ async def test_claim_without_a_subscription_points_to_checkout(service, monkeypa
     monkeypatch.setattr(config, "LEMON_SQUEEZY_CHECKOUT_URL", "https://shop.example/checkout/buy/x")
     reply = await service.claim_by_email(5, "nobody@example.com")
     assert "couldn't find" in reply and "https://shop.example/checkout/buy/x" in reply
+
+
+async def test_operator_is_told_about_purchases_and_failed_lookups_but_not_test_events(service, monkeypatch):
+    monkeypatch.setattr(config, "LEMON_SQUEEZY_ALLOW_TEST_MODE", False)
+    await service.handle_event(parse_event(payload("subscription_created", test_mode=True)))
+    assert service.notifier.alerts == []
+    await service.handle_event(parse_event(payload("subscription_created")))
+    assert "subscription_created -> activated" in service.notifier.alerts[-1]
+    await service.claim_by_email(7, "ghost@example.com")
+    assert "ghost@example.com" in service.notifier.alerts[-1]
+
+
+async def test_a_failing_admin_alert_does_not_fail_the_event(service):
+    async def broken(text, title=""):
+        raise RuntimeError("telegram down")
+
+    service.notifier.send_admin_alert = broken
+    assert await service.handle_event(parse_event(payload("subscription_created"))) == "activated"
 
 
 def test_the_module_still_imports_the_app():
