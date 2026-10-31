@@ -14,6 +14,7 @@ Print the Supabase table DDL with:  python -m src.database
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import sqlite3
 from abc import ABC, abstractmethod
@@ -29,6 +30,8 @@ from src.models import (
     AnalyzedLead,
     Subscriber,
     format_db_timestamp,
+    load_facts,
+    parse_timestamp,
     utc_now,
 )
 
@@ -115,6 +118,21 @@ CREATE INDEX IF NOT EXISTS idx_subscribers_invite ON subscribers (invite_link);
 ALTER TABLE processed_leads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE subscribers ENABLE ROW LEVEL SECURITY;
 """
+
+
+
+def stamp_sent_at(stored: str, when: datetime) -> str | None:
+    """The facts JSON in `pitch_template_en` with `sent_at` added; None when the row holds no facts."""
+    facts = load_facts(stored or "")
+    if not facts:
+        return None
+    facts["sent_at"] = when.isoformat()
+    return json.dumps(facts, separators=(",", ":"))
+
+
+def effective_sent_time(created_at: Any, stored: str) -> datetime | None:
+    """When a VIP lead was delivered: the stored `sent_at`, else (older rows) its capture time."""
+    return parse_timestamp(load_facts(stored or "").get("sent_at")) or parse_timestamp(created_at)
 
 
 class DatabaseError(Exception):
@@ -331,11 +349,13 @@ class SQLiteDatabase(BaseDatabase):
 
     async def count_vip_sent_since(self, since: datetime) -> int:
         def operation(conn: sqlite3.Connection) -> int:
-            row = conn.execute(
-                "SELECT COUNT(*) FROM processed_leads WHERE sent_to_vip = 1 AND created_at >= ?",
-                (format_db_timestamp(since),),
-            ).fetchone()
-            return int(row[0])
+            # A lead is delivered at most VIP_RETRY_MAX_AGE_HOURS after capture, so older rows cannot match.
+            earliest = since - timedelta(hours=config.VIP_RETRY_MAX_AGE_HOURS + 1)
+            rows = conn.execute(
+                "SELECT created_at, pitch_template_en FROM processed_leads WHERE sent_to_vip = 1 AND created_at >= ?",
+                (format_db_timestamp(earliest),),
+            ).fetchall()
+            return sum(1 for created, stored in rows if (effective_sent_time(created, stored) or since) >= since)
 
         return await self._run(operation)
 
@@ -355,7 +375,15 @@ class SQLiteDatabase(BaseDatabase):
 
     async def mark_sent_vip(self, item_id: str) -> None:
         def operation(conn: sqlite3.Connection) -> None:
-            conn.execute("UPDATE processed_leads SET sent_to_vip = 1 WHERE item_id = ?", (item_id,))
+            row = conn.execute("SELECT pitch_template_en FROM processed_leads WHERE item_id = ?", (item_id,)).fetchone()
+            stamped = stamp_sent_at(row[0] if row and row[0] else "", utc_now())
+            if stamped is None:
+                conn.execute("UPDATE processed_leads SET sent_to_vip = 1 WHERE item_id = ?", (item_id,))
+            else:
+                conn.execute(
+                    "UPDATE processed_leads SET sent_to_vip = 1, pitch_template_en = ? WHERE item_id = ?",
+                    (stamped, item_id),
+                )
 
         await self._run(operation)
 
@@ -604,17 +632,22 @@ class SupabaseDatabase(BaseDatabase):
         return [AnalyzedLead.from_db_row(row) for row in response.json()]
 
     async def count_vip_sent_since(self, since: datetime) -> int:
+        earliest = since - timedelta(hours=config.VIP_RETRY_MAX_AGE_HOURS + 1)
         response = await self._request(
             "GET",
             LEADS_TABLE,
             params={
-                "select": "item_id",
+                "select": "created_at,pitch_template_en",
                 "sent_to_vip": "eq.1",
-                "created_at": f"gte.{since.isoformat()}",
+                "created_at": f"gte.{earliest.isoformat()}",
                 "limit": "1000",
             },
         )
-        return len(response.json())
+        return sum(
+            1
+            for row in response.json()
+            if (effective_sent_time(row.get("created_at"), row.get("pitch_template_en") or "") or since) >= since
+        )
 
     async def get_due_free_leads(self, limit: int = 20) -> list[AnalyzedLead]:
         cutoff = (utc_now() - timedelta(hours=config.FREE_DELAY_HOURS)).isoformat()
@@ -634,11 +667,20 @@ class SupabaseDatabase(BaseDatabase):
         return [AnalyzedLead.from_db_row(row) for row in response.json()]
 
     async def mark_sent_vip(self, item_id: str) -> None:
+        current = await self._request(
+            "GET", LEADS_TABLE, params={"select": "pitch_template_en", "item_id": f"eq.{item_id}", "limit": "1"}
+        )
+        rows = current.json()
+        stored = (rows[0].get("pitch_template_en") if rows else "") or ""
+        body: dict[str, Any] = {"sent_to_vip": 1}
+        stamped = stamp_sent_at(stored, utc_now())
+        if stamped is not None:
+            body["pitch_template_en"] = stamped
         await self._request(
             "PATCH",
             LEADS_TABLE,
             params={"item_id": f"eq.{item_id}"},
-            json_body={"sent_to_vip": 1},
+            json_body=body,
             prefer="return=minimal",
         )
 

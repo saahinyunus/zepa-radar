@@ -48,9 +48,15 @@ def test_preset_range_is_scored_by_geometric_mean_not_by_its_upper_end():
     assert budget_points(representative_amount(250, 750), hourly=False) == 12  # not 17 (the 750 tier)
 
 
+def test_platform_range_stays_below_an_explicit_budget_of_the_same_size():
+    preset = score_lead(lead('freelancer', budget_usd_min=1500, budget_usd_max=3000, type='fixed', bids=3), GOOD)
+    explicit = score_lead(lead(body='Budget is $3,000 fixed.'), GOOD)
+    assert preset.parts['budget'] < explicit.parts['budget']
+
+
 def test_platform_range_never_earns_top_tier():
     raw = lead("freelancer", budget_usd_min=5000, budget_usd_max=10000, type="fixed", bids=3)
-    assert score_lead(raw, GOOD).parts["budget"] <= 21
+    assert score_lead(raw, GOOD).parts["budget"] <= 15
 
 
 def test_explicit_amount_in_text_is_used_and_hourly_is_detected():

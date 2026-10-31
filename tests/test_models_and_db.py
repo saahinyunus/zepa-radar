@@ -84,3 +84,37 @@ async def test_pending_vip_leads_come_best_score_first(db, monkeypatch):
         await db.save_lead(make_lead(item_id, score))
     pending = await db.get_pending_vip_leads(limit=3)
     assert [lead.item_id for lead in pending] == ["a:2", "a:3", "a:1"]
+
+
+async def test_daily_cap_counts_by_send_time_not_capture_time(db):
+    """A lead captured late yesterday but delivered today uses up today's allowance."""
+    facts = {"v": 2, "parts": {"base": 10}}
+    await db.save_lead(make_lead("reddit:carry", facts=facts))
+    await db.save_lead(make_lead("reddit:today", facts=facts))
+    yesterday_late = (utc_now() - timedelta(days=1)).replace(hour=23, minute=30, second=0, microsecond=0)
+    await db._run(lambda conn: conn.execute(
+        "UPDATE processed_leads SET created_at = ? WHERE item_id = ?",
+        (yesterday_late.strftime("%Y-%m-%d %H:%M:%S"), "reddit:carry"),
+    ))
+    await db.mark_sent_vip("reddit:carry")
+    await db.mark_sent_vip("reddit:today")
+    midnight = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
+    assert await db.count_vip_sent_since(midnight) == 2
+    assert await db.count_vip_sent_since(utc_now() + timedelta(minutes=1)) == 0
+
+
+async def test_mark_sent_vip_stamps_sent_at_into_the_facts(db):
+    await db.save_lead(make_lead("reddit:1", facts={"v": 2, "engagement": "one_off_project"}))
+    await db.mark_sent_vip("reddit:1")
+    stored = (await db.get_pending_vip_leads(limit=10), )  # sent leads are no longer pending
+    assert stored[0] == []
+    rows = await db._run(lambda conn: conn.execute("SELECT pitch_template_en FROM processed_leads").fetchall())
+    from src.models import load_facts
+    facts = load_facts(rows[0][0])
+    assert facts["engagement"] == "one_off_project" and "sent_at" in facts
+
+
+async def test_mark_sent_vip_still_works_for_rows_without_facts(db):
+    await db.save_lead(make_lead("reddit:old"))
+    await db.mark_sent_vip("reddit:old")
+    assert await db.count_vip_sent_since(utc_now() - timedelta(hours=1)) == 1

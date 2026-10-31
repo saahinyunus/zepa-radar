@@ -51,13 +51,15 @@ BUDGET_EXPLICIT = "explicit"  # the client wrote it (structured field or amount 
 BUDGET_PLATFORM_RANGE = "platform_range"  # a preset size class picked from a menu (Freelancer.com)
 BUDGET_UNKNOWN = "unknown"
 UNKNOWN_BUDGET_POINTS = 10
-# An amount that is not an exact client figure never earns the top tiers.
-NON_EXACT_BUDGET_POINTS_CAP = 21
+# A preset size class is not an exact client figure: platform presets (a poster posted as a
+# $50,000-100,000 "very large project") say little about the real budget, so they cap out low.
+NON_EXACT_BUDGET_POINTS_CAP = 15
 
-# Direct contact (Reddit / HN / job boards) has no public bidding war, but the real amount of
-# competition is unknown, so it earns less than the best case of a bidding platform.
+# Direct contact (Reddit / HN / job boards) has no public bidding war. A manual audit found these
+# leads the most useful ones, so they earn more than the typical bidding-platform lead
+# (median 20+ bids) and about as much as its best case.
 BIDDING_SOURCES = frozenset({"freelancer"})
-DIRECT_CONTACT_POINTS = 9
+DIRECT_CONTACT_POINTS = 12
 UNKNOWN_BIDS_POINTS = 4
 
 _AMOUNT = re.compile(r"[$€£]\s?(\d[\d,]*(?:\.\d+)?)\s?(k\b)?", re.IGNORECASE)

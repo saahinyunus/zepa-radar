@@ -112,7 +112,7 @@ def _coerce_int_or_none(value: Any) -> int | None:
         return None
 
 
-def _load_facts(stored: str) -> dict[str, Any]:
+def load_facts(stored: str) -> dict[str, Any]:
     """Facts JSON kept in `pitch_template_en` (older rows hold a plain-text pitch instead)."""
     if not stored.startswith("{"):
         return {}
@@ -258,7 +258,7 @@ class AnalyzedLead:
     def from_db_row(cls, row: Mapping[str, Any]) -> "AnalyzedLead":
         score = _coerce_score(row.get("quality_score"))
         stored = str(row.get("pitch_template_en") or "")
-        facts = _load_facts(stored)
+        facts = load_facts(stored)
         return cls(
             item_id=str(row["item_id"]),
             source=str(row.get("source") or ""),
