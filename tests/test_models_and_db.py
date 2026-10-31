@@ -130,6 +130,7 @@ async def test_free_channel_only_gets_leads_inside_the_age_window(db, monkeypatc
     monkeypatch.setattr(config, "VIP_MIN_SCORE", 60)
     monkeypatch.setattr(config, "FREE_DELAY_HOURS", 4.0)
     monkeypatch.setattr(config, "FREE_MAX_AGE_HOURS", 30.0)
+    monkeypatch.setattr(config, "FREE_MIN_SCORE", 75)
     for item_id, hours in (("fresh", 1), ("due", 5), ("old", 31), ("ancient", 120)):
         await db.save_lead(make_lead(item_id))
         await db.mark_sent_vip(item_id)
@@ -146,3 +147,14 @@ async def test_free_teaser_states_the_real_age(db):
         lead = AnalyzedLead.from_db_row(dict(row))
         assert age_label(lead) == expected
     assert "[2 DAYS AGO]" in format_free_message(lead)
+
+
+async def test_free_channel_skips_leads_below_the_showcase_score(db, monkeypatch):
+    monkeypatch.setattr(config, "VIP_MIN_SCORE", 60)
+    monkeypatch.setattr(config, "FREE_MIN_SCORE", 75)
+    monkeypatch.setattr(config, "FREE_DELAY_HOURS", 4.0)
+    for item_id, score in (("weak", 66), ("strong", 80)):
+        await db.save_lead(make_lead(item_id, score))
+        await db.mark_sent_vip(item_id)
+        await _age(db, item_id, 6)
+    assert [lead.item_id for lead in await db.get_due_free_leads()] == ["strong"]

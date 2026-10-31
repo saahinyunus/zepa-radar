@@ -369,7 +369,7 @@ class SQLiteDatabase(BaseDatabase):
                 "WHERE quality_score >= ? AND sent_to_vip = 1 AND sent_to_free = 0 "
                 "AND created_at <= ? AND created_at >= ? "
                 "ORDER BY created_at ASC LIMIT ?",
-                (config.VIP_MIN_SCORE, cutoff, oldest, limit),
+                (max(config.VIP_MIN_SCORE, config.FREE_MIN_SCORE), cutoff, oldest, limit),
             ).fetchall()
             return [AnalyzedLead.from_db_row(dict(row)) for row in rows]
 
@@ -659,7 +659,7 @@ class SupabaseDatabase(BaseDatabase):
             LEADS_TABLE,
             params={
                 "select": "*",
-                "quality_score": f"gte.{config.VIP_MIN_SCORE}",
+                "quality_score": f"gte.{max(config.VIP_MIN_SCORE, config.FREE_MIN_SCORE)}",
                 "sent_to_vip": "eq.1",
                 "sent_to_free": "eq.0",
                 "and": f"(created_at.lte.{cutoff},created_at.gte.{oldest})",
