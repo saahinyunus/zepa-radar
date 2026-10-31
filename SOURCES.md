@@ -58,7 +58,7 @@ topluluklar (Reddit) ve serbest çalışma pazaryerleri (Freelancer.com). Eklene
 | We Work Remotely ek kategoriler, Jobspresso, Dribbble Jobs, NoDesk | Elendi | Kadrolu iş, serbest çalışma oranı ~%0-5. |
 | DEV.to #hiring, Lobsters, Authentic Jobs, FreelanceWritingJobs | Elendi | Aylardır güncellenmiyor. |
 | ProBlogger, JustRemote, Dynamite Jobs, Remote.co, 4dayweek, Remoteleaf | Elendi | Boş, 404 veya bozuk RSS. |
-| Upwork, Fiverr, PeoplePerHour, Guru, Truelancer, Workana | Alınmadı | Kullanım şartları otomatik erişimi yasaklıyor ya da kamuya açık beslemeleri yok. |
+| Upwork, Fiverr, PeoplePerHour, Guru, Truelancer, Workana | Alınmadı | Şartları tek tek okunmadı. Kamuya açık, anahtarsız bir ilan beslemesi bulunamadı; büyük pazaryerlerinin çoğu otomatik erişimi şartlarında yasaklar. Resmî API yolu için aşağıya bak. |
 
 **Resmî yoldan erişilebilecek ama başvuru/anahtar gerektirenler** (işletmecinin yapması gerekir):
 Upwork API (onaylı geliştirici başvurusu), Freelancer.com resmî geliştirici API'si (uygulama kaydı; yazılı
