@@ -85,6 +85,7 @@ class SubscriptionEvent:
     email: str
     lemon_status: str
     ends_at: datetime | None
+    test_mode: bool = False
 
 
 def verify_signature(raw_body: bytes, signature: str | None, secret: str) -> bool:
@@ -120,6 +121,7 @@ def parse_event(payload: Any) -> SubscriptionEvent | None:
         email=str(attributes.get("user_email") or "").strip().lower(),
         lemon_status=str(attributes.get("status") or "").lower(),
         ends_at=parse_timestamp(attributes.get("ends_at")),
+        test_mode=bool(meta.get("test_mode")),
     )
 
 
@@ -180,6 +182,9 @@ class SubscriptionService:
 
     # --- Lemon Squeezy events ----------------------------------------------
     async def handle_event(self, event: SubscriptionEvent) -> str:
+        if event.test_mode and not config.LEMON_SQUEEZY_ALLOW_TEST_MODE:
+            logger.warning("Ignoring test-mode event %s for %s", event.event_name, event.subscription_id)
+            return "ignored_test_mode"
         async with self._lock:
             if event.event_name in ACTIVATE_EVENTS:
                 if event.event_name != "subscription_payment_success" and (

@@ -136,6 +136,9 @@ INVITE_LINK_TTL_HOURS = _env_int("INVITE_LINK_TTL_HOURS", 72)
 
 LEMON_SQUEEZY_WEBHOOK_SECRET = _env_str("LEMON_SQUEEZY_WEBHOOK_SECRET")
 LEMON_SQUEEZY_CHECKOUT_URL = _env_str("LEMON_SQUEEZY_CHECKOUT_URL")
+# Lemon Squeezy test-mode events (fake card purchases) are ignored unless this is switched on, so a
+# live store can never hand out free VIP access to someone paying with a test card.
+LEMON_SQUEEZY_ALLOW_TEST_MODE = os.getenv("LEMON_SQUEEZY_ALLOW_TEST_MODE", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
 # ---------------------------------------------------------------------------
