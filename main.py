@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import json
 import logging
+import math
 import os
 import sys
 import time
@@ -57,13 +58,24 @@ class RunStats:
 
 async def vip_allowance(db: BaseDatabase) -> int:
     """How many leads may go to the VIP group in this run: the per-run cap, cut by what is left of
-    the daily cap (UTC day), so the daily volume does not depend on how often the workflow runs."""
+    the daily cap (UTC day), so the daily volume does not depend on how often the workflow runs.
+
+    The cap is also paced: by a given time of day only a proportional share (plus a small burst) may
+    have been sent. Without pacing the whole quota went out in the first hours after midnight UTC and
+    the group then stayed silent for the rest of the day while good leads expired unsent."""
     allowance = config.VIP_MAX_PER_RUN
     if config.VIP_DAILY_CAP > 0:
-        midnight = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
+        now = utc_now()
+        midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
         sent_today = await db.count_vip_sent_since(midnight)
-        allowance = min(allowance, max(0, config.VIP_DAILY_CAP - sent_today))
-        logger.info("VIP allowance %d (daily cap %d, already sent today %d)", allowance, config.VIP_DAILY_CAP, sent_today)
+        elapsed = (now - midnight).total_seconds() / 86400
+        paced = math.ceil(config.VIP_DAILY_CAP * elapsed) + 2 * config.VIP_MAX_PER_RUN
+        budget = min(config.VIP_DAILY_CAP, paced)
+        allowance = min(allowance, max(0, budget - sent_today))
+        logger.info(
+            "VIP allowance %d (daily cap %d, paced budget so far %d, already sent today %d)",
+            allowance, config.VIP_DAILY_CAP, budget, sent_today,
+        )
     return allowance
 
 

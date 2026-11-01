@@ -153,7 +153,7 @@ VIP_MIN_SCORE = _env_int("VIP_MIN_SCORE", 60)
 VIP_MAX_PER_RUN = _env_int("VIP_MAX_PER_RUN", 4)
 # At most this many leads are posted per UTC day, independent of how often the workflow runs.
 # Fewer strong leads beat a full quota: nothing is posted just to fill it. 0 disables the cap.
-VIP_DAILY_CAP = _env_int("VIP_DAILY_CAP", 20)
+VIP_DAILY_CAP = _env_int("VIP_DAILY_CAP", 30)
 FREE_DELAY_HOURS = _env_float("FREE_DELAY_HOURS", 4.0)
 # Teasers are labelled with the lead's real age, so leads older than this never go to the Free channel
 # (an old backlog must not appear as "just captured").

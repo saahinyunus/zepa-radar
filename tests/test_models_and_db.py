@@ -158,3 +158,27 @@ async def test_free_channel_skips_leads_below_the_showcase_score(db, monkeypatch
         await db.mark_sent_vip(item_id)
         await _age(db, item_id, 6)
     assert [lead.item_id for lead in await db.get_due_free_leads()] == ["strong"]
+
+
+class _SentToday:
+    def __init__(self, sent):
+        self.sent = sent
+
+    async def count_vip_sent_since(self, since):
+        return self.sent
+
+
+async def test_daily_quota_is_paced_through_the_day_not_spent_after_midnight(monkeypatch):
+    monkeypatch.setattr(config, "VIP_DAILY_CAP", 30)
+    monkeypatch.setattr(config, "VIP_MAX_PER_RUN", 4)
+    day = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    async def allowance(hour, sent):
+        monkeypatch.setattr(main, "utc_now", lambda: day.replace(hour=hour))
+        return await main.vip_allowance(_SentToday(sent))
+
+    # budget so far = ceil(30 * elapsed) + 8: 8 at 00:00, 16 at 06:00, 24 at 12:00, 30 from ~17:00 on
+    assert await allowance(0, 0) == 4 and await allowance(0, 8) == 0
+    assert await allowance(6, 12) == 4 and await allowance(6, 16) == 0   # the 06:22 case: no longer 20 sent by now
+    assert await allowance(13, 20) == 4 and await allowance(13, 26) == 0
+    assert await allowance(23, 28) == 2 and await allowance(23, 30) == 0  # never beyond the daily cap
