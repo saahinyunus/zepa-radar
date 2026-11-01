@@ -50,6 +50,7 @@ from src.models import (
     parse_timestamp,
     utc_now,
 )
+from src.support_bot import SupportService
 from src.telegram_notifier import TelegramNotifier
 
 logger = logging.getLogger("webhook")
@@ -76,6 +77,12 @@ START_TEXT = (
     "Send me the <b>e-mail address you used at checkout</b> and I will reply with your "
     "personal one-time VIP group invite link."
 )
+
+
+def support_hint() -> str:
+    """'Need help?' pointer to the support bot; empty while the desk is not configured."""
+    username = config.TELEGRAM_SUPPORT_BOT_USERNAME
+    return f"\n\n🛟 Need help? Write to @{html.escape(username)}." if username and config.TELEGRAM_SUPPORT_BOT_TOKEN else ""
 
 
 class ProcessingError(Exception):
@@ -317,7 +324,7 @@ class SubscriptionService:
         match = EMAIL_PATTERN.search(text)
         # "<me@x.com>" or "me@x.com." are typed all the time; drop the wrapping punctuation.
         email = match.group(0).strip("<>()[]{}\"'.,;:!?") if match else ""
-        reply = START_TEXT if not match else await self.claim_by_email(user_id, email)
+        reply = (START_TEXT if not match else await self.claim_by_email(user_id, email)) + support_hint()
         await self.notifier.call_api(
             "sendMessage",
             {"chat_id": chat_id, "text": reply, "parse_mode": "HTML", "disable_web_page_preview": True},
@@ -377,9 +384,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await db.init()
     notifier = TelegramNotifier()
     app.state.service = SubscriptionService(db, notifier)
+    support_notifier = TelegramNotifier(token=config.TELEGRAM_SUPPORT_BOT_TOKEN) if config.TELEGRAM_SUPPORT_BOT_TOKEN else None
+    app.state.support = SupportService(db, support_notifier, notifier) if support_notifier else None
     try:
         yield
     finally:
+        if support_notifier is not None:
+            await support_notifier.close()
         await notifier.close()
         await db.close()
 
@@ -471,6 +482,32 @@ async def telegram_webhook(
     return JSONResponse({"ok": True, "result": result})
 
 
+@app.post("/webhooks/support")
+async def support_webhook(
+    request: Request,
+    x_telegram_bot_api_secret_token: str | None = Header(default=None),
+) -> JSONResponse:
+    secret = config.TELEGRAM_WEBHOOK_SECRET
+    support: SupportService | None = request.app.state.support
+    if support is None or not secret:
+        raise HTTPException(status_code=503, detail="Support desk is not configured")
+    if not hmac.compare_digest(secret, x_telegram_bot_api_secret_token or ""):
+        raise HTTPException(status_code=401, detail="Invalid secret token")
+
+    try:
+        update = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid JSON") from None
+    if not isinstance(update, dict):
+        return JSONResponse({"ok": True})
+    try:
+        result = await support.handle_update(update)
+    except Exception:  # noqa: BLE001 - never make Telegram retry-loop on a bad update
+        logger.exception("Support update handling failed")
+        return JSONResponse({"ok": False})
+    return JSONResponse({"ok": True, "result": result})
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -489,6 +526,19 @@ async def _set_telegram_webhook(public_url: str) -> int:
             },
         )
     print("Telegram webhook registered." if result else "Failed to register the Telegram webhook.")
+    if result and config.TELEGRAM_SUPPORT_BOT_TOKEN:
+        async with TelegramNotifier(token=config.TELEGRAM_SUPPORT_BOT_TOKEN) as support_bot:
+            support_result = await support_bot.call_api(
+                "setWebhook",
+                {
+                    "url": public_url.rstrip("/") + "/webhooks/support",
+                    "secret_token": config.TELEGRAM_WEBHOOK_SECRET,
+                    "allowed_updates": ["message"],
+                    "drop_pending_updates": True,
+                },
+            )
+        print("Support webhook registered." if support_result else "Failed to register the support webhook.")
+        return 0 if support_result else 1
     return 0 if result else 1
 
 

@@ -132,6 +132,10 @@ TELEGRAM_WEBHOOK_SECRET = _env_str("TELEGRAM_WEBHOOK_SECRET")
 TELEGRAM_BOT_USERNAME = _env_str("TELEGRAM_BOT_USERNAME").lstrip("@")
 # Your own Telegram user ID (message @userinfobot to find it): health alerts go there. Optional.
 TELEGRAM_ADMIN_CHAT_ID = _env_str("TELEGRAM_ADMIN_CHAT_ID")
+# Support desk (src/support_bot.py): a second bot with its own token; empty token = desk off.
+TELEGRAM_SUPPORT_BOT_TOKEN = _env_str("TELEGRAM_SUPPORT_BOT_TOKEN")
+TELEGRAM_SUPPORT_BOT_USERNAME = _env_str("TELEGRAM_SUPPORT_BOT_USERNAME").lstrip("@")
+SUPPORT_MAX_MESSAGES_PER_HOUR = _env_int("SUPPORT_MAX_MESSAGES_PER_HOUR", 20)
 INVITE_LINK_TTL_HOURS = _env_int("INVITE_LINK_TTL_HOURS", 72)
 
 LEMON_SQUEEZY_WEBHOOK_SECRET = _env_str("LEMON_SQUEEZY_WEBHOOK_SECRET")

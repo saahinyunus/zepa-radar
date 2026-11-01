@@ -247,6 +247,11 @@ class BaseDatabase(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def get_subscribers_by_telegram_id(self, telegram_user_id: int) -> list[Subscriber]:
+        """All subscriptions bound to a Telegram account."""
+        raise NotImplementedError
+
+    @abstractmethod
     async def update_subscriber_status(self, subscription_id: str, status: str) -> bool:
         """Change status ('active' | 'cancelled' | 'expired'); False if the id is unknown."""
         raise NotImplementedError
@@ -458,6 +463,16 @@ class SQLiteDatabase(BaseDatabase):
                 "SELECT * FROM subscribers WHERE invite_link = ?", (invite_link,)
             ).fetchone()
             return Subscriber.from_db_row(dict(row)) if row else None
+
+        return await self._run(operation)
+
+    async def get_subscribers_by_telegram_id(self, telegram_user_id: int) -> list[Subscriber]:
+        def operation(conn: sqlite3.Connection) -> list[Subscriber]:
+            rows = conn.execute(
+                "SELECT * FROM subscribers WHERE telegram_user_id = ? ORDER BY updated_at DESC",
+                (int(telegram_user_id),),
+            ).fetchall()
+            return [Subscriber.from_db_row(dict(row)) for row in rows]
 
         return await self._run(operation)
 
@@ -736,6 +751,9 @@ class SupabaseDatabase(BaseDatabase):
     async def get_subscriber_by_invite_link(self, invite_link: str) -> Subscriber | None:
         found = await self._select_subscribers({"invite_link": f"eq.{invite_link}", "limit": "1"})
         return found[0] if found else None
+
+    async def get_subscribers_by_telegram_id(self, telegram_user_id: int) -> list[Subscriber]:
+        return await self._select_subscribers({"telegram_user_id": f"eq.{int(telegram_user_id)}"})
 
     async def _patch_subscriber(self, subscription_id: str, changes: dict[str, Any]) -> bool:
         payload = {**changes, "updated_at": utc_now().isoformat()}
