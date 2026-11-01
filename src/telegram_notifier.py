@@ -90,11 +90,17 @@ def format_free_message(lead: AnalyzedLead) -> str:
 def format_free_cta() -> str:
     """Closing message of a Free-channel batch: the pitch for the paid group."""
     hours = _hours_label(config.FREE_DELAY_HOURS)
+    support = (
+        f"\n\n🛟 Questions? Message @{_esc(config.TELEGRAM_SUPPORT_BOT_USERNAME)}"
+        if config.TELEGRAM_SUPPORT_BOT_USERNAME
+        else ""
+    )
     return (
         "💎 <b>Want leads like these in real time?</b>\n\n"
         f"Everything above reached Zepa Radar VIP members at least {hours} hours earlier, with the direct link to the "
         "client's post. VIP members apply first.\n\n"
         "👇 Join VIP for $19/month. Cancel any time."
+        f"{support}"
     )
 
 

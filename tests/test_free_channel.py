@@ -59,6 +59,13 @@ async def test_join_vip_message_closes_a_batch_that_sent_something(monkeypatch):
     assert keyboard["inline_keyboard"][0][0]["url"] == "https://shop.example/checkout/buy/x"
 
 
+def test_join_vip_message_points_to_support_only_when_the_bot_is_configured(monkeypatch):
+    monkeypatch.setattr(config, "TELEGRAM_SUPPORT_BOT_USERNAME", "")
+    assert "Questions?" not in format_free_cta()
+    monkeypatch.setattr(config, "TELEGRAM_SUPPORT_BOT_USERNAME", "ZepaRadarSupportBot")
+    assert "Questions? Message @ZepaRadarSupportBot" in format_free_cta()
+
+
 async def test_no_join_message_when_nothing_was_sent(monkeypatch):
     notifier = make_notifier(monkeypatch, {"a": False})
     assert await notifier.send_free_leads([FakeLead("a")], FakeDb()) == 0
