@@ -29,6 +29,8 @@ from src.models import (
     SUBSCRIBER_STATUSES,
     AnalyzedLead,
     Subscriber,
+    SupportMessage,
+    SupportTicket,
     format_db_timestamp,
     load_facts,
     parse_timestamp,
@@ -41,6 +43,9 @@ T = TypeVar("T")
 
 LEADS_TABLE = "processed_leads"
 SUBSCRIBERS_TABLE = "subscribers"
+SUPPORT_TICKETS_TABLE = "support_tickets"
+SUPPORT_MESSAGES_TABLE = "support_messages"
+SUPPORT_BLOCKED_TABLE = "support_blocked"
 
 SQLITE_ID_CHUNK = 500
 SUPABASE_ID_CHUNK = 50
@@ -80,7 +85,71 @@ SQLITE_SCHEMA_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_leads_delivery ON processed_leads (sent_to_vip, sent_to_free, quality_score)",
     "CREATE INDEX IF NOT EXISTS idx_subscribers_email ON subscribers (customer_email)",
     "CREATE INDEX IF NOT EXISTS idx_subscribers_invite ON subscribers (invite_link)",
+    """
+    CREATE TABLE IF NOT EXISTS support_tickets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        telegram_user_id BIGINT NOT NULL,
+        name TEXT,
+        username TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS support_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER,
+        telegram_user_id BIGINT NOT NULL,
+        direction TEXT NOT NULL,
+        body TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS support_blocked (
+        telegram_user_id BIGINT PRIMARY KEY,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets (telegram_user_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_support_messages_user ON support_messages (telegram_user_id, created_at)",
 )
+
+# The support desk tables are optional: the support bot still forwards messages without them.
+SUPABASE_SUPPORT_SQL = """\
+-- Support desk (tickets, history, blocking). Paste into Supabase -> SQL Editor -> Run (once).
+CREATE TABLE IF NOT EXISTS support_tickets (
+    id BIGSERIAL PRIMARY KEY,
+    telegram_user_id BIGINT NOT NULL,
+    name TEXT,
+    username TEXT,
+    status TEXT NOT NULL DEFAULT 'open', -- 'open', 'closed'
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS support_messages (
+    id BIGSERIAL PRIMARY KEY,
+    ticket_id BIGINT,
+    telegram_user_id BIGINT NOT NULL,
+    direction TEXT NOT NULL, -- 'customer', 'operator', 'auto'
+    body TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS support_blocked (
+    telegram_user_id BIGINT PRIMARY KEY,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets (telegram_user_id, status);
+CREATE INDEX IF NOT EXISTS idx_support_messages_user ON support_messages (telegram_user_id, created_at);
+
+ALTER TABLE support_tickets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE support_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE support_blocked ENABLE ROW LEVEL SECURITY;
+"""
 
 SUPABASE_SCHEMA_SQL = """\
 -- Paste this into Supabase -> SQL Editor -> Run (once).
@@ -117,7 +186,8 @@ CREATE INDEX IF NOT EXISTS idx_subscribers_invite ON subscribers (invite_link);
 -- Block the public anon key; the service_role key used by the bot bypasses RLS.
 ALTER TABLE processed_leads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE subscribers ENABLE ROW LEVEL SECURITY;
-"""
+
+""" + SUPABASE_SUPPORT_SQL
 
 
 
@@ -259,6 +329,48 @@ class BaseDatabase(ABC):
     @abstractmethod
     async def set_telegram_user_id(self, subscription_id: str, telegram_user_id: int) -> bool:
         """Bind a Telegram user to a subscription; False if the id is unknown."""
+        raise NotImplementedError
+
+    # --- support desk ------------------------------------------------------
+    @abstractmethod
+    async def create_support_ticket(self, telegram_user_id: int, name: str, username: str) -> SupportTicket:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def get_support_ticket(self, ticket_id: int) -> SupportTicket | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def get_open_support_ticket(self, telegram_user_id: int) -> SupportTicket | None:
+        """The customer's newest open ticket, if any."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def close_support_ticket(self, ticket_id: int) -> bool:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def list_open_support_tickets(self, limit: int = 20) -> list[SupportTicket]:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def add_support_message(
+        self, ticket_id: int | None, telegram_user_id: int, direction: str, body: str
+    ) -> None:
+        """Log a conversation line and bump the ticket's `updated_at`."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def get_support_messages(self, telegram_user_id: int, limit: int = 15) -> list[SupportMessage]:
+        """The customer's latest lines across all tickets, oldest first."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def is_support_blocked(self, telegram_user_id: int) -> bool:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def set_support_blocked(self, telegram_user_id: int, blocked: bool) -> None:
         raise NotImplementedError
 
 
@@ -500,6 +612,105 @@ class SQLiteDatabase(BaseDatabase):
             return cursor.rowcount > 0
 
         return await self._run(operation)
+
+    # --- support desk ------------------------------------------------------
+    async def create_support_ticket(self, telegram_user_id: int, name: str, username: str) -> SupportTicket:
+        now = format_db_timestamp(utc_now())
+
+        def operation(conn: sqlite3.Connection) -> SupportTicket:
+            cursor = conn.execute(
+                "INSERT INTO support_tickets (telegram_user_id, name, username, status, created_at, updated_at) "
+                "VALUES (?, ?, ?, 'open', ?, ?)",
+                (int(telegram_user_id), name, username, now, now),
+            )
+            row = conn.execute("SELECT * FROM support_tickets WHERE id = ?", (cursor.lastrowid,)).fetchone()
+            return SupportTicket.from_db_row(dict(row))
+
+        return await self._run(operation)
+
+    def _fetch_tickets(self, conn: sqlite3.Connection, where: str, params: tuple, limit: int) -> list[SupportTicket]:
+        rows = conn.execute(
+            f"SELECT * FROM support_tickets WHERE {where} ORDER BY updated_at DESC, id DESC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
+        return [SupportTicket.from_db_row(dict(row)) for row in rows]
+
+    async def get_support_ticket(self, ticket_id: int) -> SupportTicket | None:
+        def operation(conn: sqlite3.Connection) -> SupportTicket | None:
+            found = self._fetch_tickets(conn, "id = ?", (int(ticket_id),), 1)
+            return found[0] if found else None
+
+        return await self._run(operation)
+
+    async def get_open_support_ticket(self, telegram_user_id: int) -> SupportTicket | None:
+        def operation(conn: sqlite3.Connection) -> SupportTicket | None:
+            found = self._fetch_tickets(conn, "telegram_user_id = ? AND status = 'open'", (int(telegram_user_id),), 1)
+            return found[0] if found else None
+
+        return await self._run(operation)
+
+    async def close_support_ticket(self, ticket_id: int) -> bool:
+        now = format_db_timestamp(utc_now())
+
+        def operation(conn: sqlite3.Connection) -> bool:
+            cursor = conn.execute(
+                "UPDATE support_tickets SET status = 'closed', updated_at = ? WHERE id = ?", (now, int(ticket_id))
+            )
+            return cursor.rowcount > 0
+
+        return await self._run(operation)
+
+    async def list_open_support_tickets(self, limit: int = 20) -> list[SupportTicket]:
+        return await self._run(lambda conn: self._fetch_tickets(conn, "status = 'open'", (), int(limit)))
+
+    async def add_support_message(
+        self, ticket_id: int | None, telegram_user_id: int, direction: str, body: str
+    ) -> None:
+        now = format_db_timestamp(utc_now())
+
+        def operation(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                "INSERT INTO support_messages (ticket_id, telegram_user_id, direction, body, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (ticket_id, int(telegram_user_id), direction, body, now),
+            )
+            if ticket_id is not None:
+                conn.execute("UPDATE support_tickets SET updated_at = ? WHERE id = ?", (now, int(ticket_id)))
+
+        await self._run(operation)
+
+    async def get_support_messages(self, telegram_user_id: int, limit: int = 15) -> list[SupportMessage]:
+        def operation(conn: sqlite3.Connection) -> list[SupportMessage]:
+            rows = conn.execute(
+                "SELECT * FROM support_messages WHERE telegram_user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+                (int(telegram_user_id), int(limit)),
+            ).fetchall()
+            return [SupportMessage.from_db_row(dict(row)) for row in reversed(rows)]
+
+        return await self._run(operation)
+
+    async def is_support_blocked(self, telegram_user_id: int) -> bool:
+        def operation(conn: sqlite3.Connection) -> bool:
+            row = conn.execute(
+                "SELECT 1 FROM support_blocked WHERE telegram_user_id = ?", (int(telegram_user_id),)
+            ).fetchone()
+            return row is not None
+
+        return await self._run(operation)
+
+    async def set_support_blocked(self, telegram_user_id: int, blocked: bool) -> None:
+        now = format_db_timestamp(utc_now())
+
+        def operation(conn: sqlite3.Connection) -> None:
+            if blocked:
+                conn.execute(
+                    "INSERT OR IGNORE INTO support_blocked (telegram_user_id, created_at) VALUES (?, ?)",
+                    (int(telegram_user_id), now),
+                )
+            else:
+                conn.execute("DELETE FROM support_blocked WHERE telegram_user_id = ?", (int(telegram_user_id),))
+
+        await self._run(operation)
 
 
 # ---------------------------------------------------------------------------
@@ -771,6 +982,106 @@ class SupabaseDatabase(BaseDatabase):
 
     async def set_telegram_user_id(self, subscription_id: str, telegram_user_id: int) -> bool:
         return await self._patch_subscriber(subscription_id, {"telegram_user_id": int(telegram_user_id)})
+
+    # --- support desk ------------------------------------------------------
+    async def create_support_ticket(self, telegram_user_id: int, name: str, username: str) -> SupportTicket:
+        response = await self._request(
+            "POST",
+            SUPPORT_TICKETS_TABLE,
+            json_body={"telegram_user_id": int(telegram_user_id), "name": name, "username": username},
+            prefer="return=representation",
+        )
+        return SupportTicket.from_db_row(response.json()[0])
+
+    async def _select_tickets(self, filters: dict[str, str]) -> list[SupportTicket]:
+        response = await self._request(
+            "GET", SUPPORT_TICKETS_TABLE, params={"select": "*", "order": "updated_at.desc", **filters}
+        )
+        return [SupportTicket.from_db_row(row) for row in response.json()]
+
+    async def get_support_ticket(self, ticket_id: int) -> SupportTicket | None:
+        found = await self._select_tickets({"id": f"eq.{int(ticket_id)}", "limit": "1"})
+        return found[0] if found else None
+
+    async def get_open_support_ticket(self, telegram_user_id: int) -> SupportTicket | None:
+        found = await self._select_tickets(
+            {"telegram_user_id": f"eq.{int(telegram_user_id)}", "status": "eq.open", "limit": "1"}
+        )
+        return found[0] if found else None
+
+    async def close_support_ticket(self, ticket_id: int) -> bool:
+        response = await self._request(
+            "PATCH",
+            SUPPORT_TICKETS_TABLE,
+            params={"id": f"eq.{int(ticket_id)}"},
+            json_body={"status": "closed", "updated_at": utc_now().isoformat()},
+            prefer="return=representation",
+        )
+        return bool(response.json())
+
+    async def list_open_support_tickets(self, limit: int = 20) -> list[SupportTicket]:
+        return await self._select_tickets({"status": "eq.open", "limit": str(int(limit))})
+
+    async def add_support_message(
+        self, ticket_id: int | None, telegram_user_id: int, direction: str, body: str
+    ) -> None:
+        await self._request(
+            "POST",
+            SUPPORT_MESSAGES_TABLE,
+            json_body={
+                "ticket_id": ticket_id,
+                "telegram_user_id": int(telegram_user_id),
+                "direction": direction,
+                "body": body,
+            },
+            prefer="return=minimal",
+        )
+        if ticket_id is not None:
+            await self._request(
+                "PATCH",
+                SUPPORT_TICKETS_TABLE,
+                params={"id": f"eq.{int(ticket_id)}"},
+                json_body={"updated_at": utc_now().isoformat()},
+                prefer="return=minimal",
+            )
+
+    async def get_support_messages(self, telegram_user_id: int, limit: int = 15) -> list[SupportMessage]:
+        response = await self._request(
+            "GET",
+            SUPPORT_MESSAGES_TABLE,
+            params={
+                "select": "*",
+                "telegram_user_id": f"eq.{int(telegram_user_id)}",
+                "order": "created_at.desc",
+                "limit": str(int(limit)),
+            },
+        )
+        return [SupportMessage.from_db_row(row) for row in reversed(response.json())]
+
+    async def is_support_blocked(self, telegram_user_id: int) -> bool:
+        response = await self._request(
+            "GET",
+            SUPPORT_BLOCKED_TABLE,
+            params={"select": "telegram_user_id", "telegram_user_id": f"eq.{int(telegram_user_id)}", "limit": "1"},
+        )
+        return bool(response.json())
+
+    async def set_support_blocked(self, telegram_user_id: int, blocked: bool) -> None:
+        if blocked:
+            await self._request(
+                "POST",
+                SUPPORT_BLOCKED_TABLE,
+                params={"on_conflict": "telegram_user_id"},
+                json_body={"telegram_user_id": int(telegram_user_id)},
+                prefer="resolution=merge-duplicates,return=minimal",
+            )
+        else:
+            await self._request(
+                "DELETE",
+                SUPPORT_BLOCKED_TABLE,
+                params={"telegram_user_id": f"eq.{int(telegram_user_id)}"},
+                prefer="return=minimal",
+            )
 
 
 # ---------------------------------------------------------------------------

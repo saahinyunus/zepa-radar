@@ -296,6 +296,50 @@ class AnalyzedLead:
 
 
 @dataclass(slots=True)
+class SupportTicket:
+    """A customer's support conversation (`support_tickets` row); its reference is `ZR-<id>`."""
+
+    id: int
+    telegram_user_id: int
+    name: str = ""
+    username: str = ""
+    status: str = "open"
+    updated_at: datetime | None = None
+
+    @classmethod
+    def from_db_row(cls, row: Mapping[str, Any]) -> "SupportTicket":
+        return cls(
+            id=int(row["id"]),
+            telegram_user_id=int(row["telegram_user_id"]),
+            name=str(row.get("name") or ""),
+            username=str(row.get("username") or ""),
+            status=str(row.get("status") or "open"),
+            updated_at=parse_timestamp(row.get("updated_at")),
+        )
+
+
+@dataclass(slots=True)
+class SupportMessage:
+    """One logged line of a support conversation; direction is customer | operator | auto."""
+
+    telegram_user_id: int
+    direction: str
+    body: str
+    ticket_id: int | None = None
+    created_at: datetime | None = None
+
+    @classmethod
+    def from_db_row(cls, row: Mapping[str, Any]) -> "SupportMessage":
+        return cls(
+            telegram_user_id=int(row["telegram_user_id"]),
+            direction=str(row.get("direction") or ""),
+            body=str(row.get("body") or ""),
+            ticket_id=_coerce_int_or_none(row.get("ticket_id")),
+            created_at=parse_timestamp(row.get("created_at")),
+        )
+
+
+@dataclass(slots=True)
 class Subscriber:
     """A Lemon Squeezy subscription; maps 1:1 to a `subscribers` row."""
 

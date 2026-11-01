@@ -50,7 +50,7 @@ from src.models import (
     parse_timestamp,
     utc_now,
 )
-from src.support_bot import SupportService
+from src.support_bot import SupportService, draft_reply
 from src.telegram_notifier import TelegramNotifier
 
 logger = logging.getLogger("webhook")
@@ -385,10 +385,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     notifier = TelegramNotifier()
     app.state.service = SubscriptionService(db, notifier)
     support_notifier = TelegramNotifier(token=config.TELEGRAM_SUPPORT_BOT_TOKEN) if config.TELEGRAM_SUPPORT_BOT_TOKEN else None
-    app.state.support = SupportService(db, support_notifier, notifier) if support_notifier else None
+    drafter = draft_reply if config.GROQ_API_KEY and config.SUPPORT_AI_DRAFTS else None
+    app.state.support = SupportService(db, support_notifier, notifier, drafter) if support_notifier else None
     try:
         yield
     finally:
+        if app.state.support is not None:
+            await app.state.support.wait_for_background()
         if support_notifier is not None:
             await support_notifier.close()
         await notifier.close()
