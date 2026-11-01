@@ -150,10 +150,10 @@ GENERATE_PITCH = os.getenv("GENERATE_PITCH", "false").strip().lower() in {"1", "
 # Provisional: re-check against labelled leads once enough stored facts exist.
 VIP_MIN_SCORE = _env_int("VIP_MIN_SCORE", 60)
 # Best-scoring leads go first; the rest wait for the next run (they stay eligible for VIP_RETRY_MAX_AGE_HOURS).
-VIP_MAX_PER_RUN = _env_int("VIP_MAX_PER_RUN", 4)
+VIP_MAX_PER_RUN = _env_int("VIP_MAX_PER_RUN", 8)
 # At most this many leads are posted per UTC day, independent of how often the workflow runs.
 # Fewer strong leads beat a full quota: nothing is posted just to fill it. 0 disables the cap.
-VIP_DAILY_CAP = _env_int("VIP_DAILY_CAP", 30)
+VIP_DAILY_CAP = _env_int("VIP_DAILY_CAP", 60)
 FREE_DELAY_HOURS = _env_float("FREE_DELAY_HOURS", 4.0)
 # Teasers are labelled with the lead's real age, so leads older than this never go to the Free channel
 # (an old backlog must not appear as "just captured").
