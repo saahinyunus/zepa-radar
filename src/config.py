@@ -135,7 +135,6 @@ TELEGRAM_ADMIN_CHAT_ID = _env_str("TELEGRAM_ADMIN_CHAT_ID")
 # Support desk (src/support_bot.py): a second bot with its own token; empty token = desk off.
 TELEGRAM_SUPPORT_BOT_TOKEN = _env_str("TELEGRAM_SUPPORT_BOT_TOKEN")
 TELEGRAM_SUPPORT_BOT_USERNAME = _env_str("TELEGRAM_SUPPORT_BOT_USERNAME").lstrip("@")
-SUPPORT_MAX_MESSAGES_PER_HOUR = _env_int("SUPPORT_MAX_MESSAGES_PER_HOUR", 20)
 # AI-written draft answers for the operator (needs GROQ_API_KEY on the webhook server too).
 SUPPORT_AI_DRAFTS = _env_str("SUPPORT_AI_DRAFTS", "true").lower() not in {"0", "false", "no", "off"}
 INVITE_LINK_TTL_HOURS = _env_int("INVITE_LINK_TTL_HOURS", 72)

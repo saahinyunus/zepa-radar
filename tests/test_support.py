@@ -57,7 +57,6 @@ async def fake_drafter(text):
 @pytest.fixture
 async def desk(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "TELEGRAM_ADMIN_CHAT_ID", str(OPERATOR))
-    monkeypatch.setattr(config, "SUPPORT_MAX_MESSAGES_PER_HOUR", 3)
     db = SQLiteDatabase(str(tmp_path / "s.db"))
     async with db:
         yield SupportService(db, FakeBot(), FakeBot())
@@ -106,10 +105,10 @@ async def test_stickers_and_other_content_are_politely_refused(desk):
     assert desk.notifier.sent(OPERATOR) == []
 
 
-async def test_a_flood_of_messages_is_cut_off(desk):
-    results = [await desk.handle_update(customer_message(f"m{i}")) for i in range(5)]
-    assert results == ["forwarded"] * 3 + ["rate_limited"] * 2
-    assert len(desk.notifier.sent(OPERATOR)) == 3
+async def test_customers_are_never_limited_in_how_many_messages_they_send(desk):
+    results = [await desk.handle_update(customer_message(f"m{i}")) for i in range(30)]
+    assert results == ["forwarded"] * 30
+    assert len(desk.notifier.sent(OPERATOR)) == 30
 
 
 async def test_when_the_operator_cannot_be_reached_the_customer_is_told_and_the_operator_warned(desk):

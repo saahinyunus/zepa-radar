@@ -23,7 +23,6 @@ import asyncio
 import logging
 import re
 import time
-from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
@@ -41,7 +40,6 @@ DRAFT_PATTERN = re.compile(r"Draft for Ticket (ZR-[0-9A-Z]+) \| user (\d+)\n\n(.
 # Media Telegram lets us re-caption while copying it to the operator.
 MEDIA_KEYS = ("photo", "document", "video", "audio", "voice", "animation")
 BASE36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-RATE_WINDOW_SECONDS = 3600
 ACK_EVERY_SECONDS = 600
 FAQ_REPEAT_SECONDS = 1800
 DRAFT_EVERY_SECONDS = 300
@@ -65,7 +63,6 @@ OPERATOR_HELP = (
     "Anywhere: /open - list open tickets"
 )
 UNSUPPORTED_TEXT = "Sorry, I can only read text, photos and files. Please describe the problem in a message."
-SLOW_DOWN_TEXT = "You are sending a lot of messages. Please wait a little; we have your earlier ones."
 UNAVAILABLE_TEXT = "Support is temporarily unavailable. Please try again in a little while."
 NO_TABLES_TEXT = "⚠️ The support tables are not set up yet. Run the support SQL in Supabase (python -m src.database prints it)."
 
@@ -235,7 +232,6 @@ class SupportService:
         self.notifier = notifier  # the support bot
         self.alert_notifier = alert_notifier  # the main bot, used to warn the operator
         self.drafter = drafter
-        self._recent: dict[int, deque[float]] = defaultdict(deque)
         self._last_ack: dict[int, float] = {}
         self._last_faq: dict[tuple[int, str], float] = {}
         self._last_draft: dict[int, float] = {}
@@ -275,18 +271,6 @@ class SupportService:
         if not text.startswith("/"):
             return ""
         return text.split()[0].split("@")[0].lower()
-
-    def _allow(self, user_id: int, now: float) -> bool:
-        window = self._recent[user_id]
-        while window and now - window[0] > RATE_WINDOW_SECONDS:
-            window.popleft()
-        if len(window) >= config.SUPPORT_MAX_MESSAGES_PER_HOUR:
-            return False
-        window.append(now)
-        if len(self._recent) > 5000:  # forget idle users so the dict cannot grow without bound
-            for key in [k for k, v in self._recent.items() if not v]:
-                del self._recent[key]
-        return True
 
     async def _plan(self, user_id: int) -> str:
         try:
@@ -360,10 +344,6 @@ class SupportService:
             return "no_operator"
 
         now = time.time()
-        if not self._allow(user_id, now):
-            await self._say(chat_id, SLOW_DOWN_TEXT)
-            return "rate_limited"
-
         ticket = await self._ticket_for(sender, now)
         body = text or str(message.get("caption") or "") or "[file]"
         faq = None if has_media else match_faq(text)
