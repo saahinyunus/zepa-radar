@@ -93,6 +93,26 @@ almıştı, hiçbiri VIP'ye gitmemişti. İş panosu ilanlarına bu kural uygula
 ~18-20) ilanı LLM'e gönderiyor. Gürültülü bir kaynak eklemek iyi ilanları kota dışında bırakır; bu yüzden
 yukarıdaki listede gönderi sayısı değil, ön filtreyi geçen **müşteri** gönderisi oranı ölçüt alındı.
 
+## Beş yapay zekânın önerileri (Gemini, ChatGPT, Claude, Perplexity, Elicit; 2 Kasım 2026)
+
+Her uç nokta kendi makinemizden canlı denendi. Sonuç: eklenecek kaynak yok.
+
+| Aday | Karar | Neden |
+|---|---|---|
+| Bluesky `searchPosts` | Elendi | `api.bsky.app` çalışıyor (`public.api.bsky.app` 403 veriyor), ama 16 arama cümlesiyle 48 saatte yalnızca 21 gönderi çıktı; 4'ü bir toplayıcı botun (intentpond) yeniden paylaşımı, geri kalanı siyaset, kadrolu iş ve kendini öneren kişiler. Günde ~1-2 gerçek müşteri gönderisi. |
+| Freelancehunt RSS | Elendi | Veri taze ve hepsi müşteri ilanı (~38/gün) ama Ukraynaca/Rusça, bütçeler UAH; kullanım şartları (madde 3.15) veriyi her seferinde yönetici izniyle kullanmaya bağlıyor. |
+| Freelance.ua RSS | Elendi | Taze ama Ukraynaca; şartlar doğrulanmadı. |
+| Codeur.com | Elendi | Fransızca, RSS yok (HTML kazıma), şartları (madde 5, 9) engelliyor. |
+| Telegram `t.me/s/...` kanalları | Elendi | Telegram'ın içerik lisansı şartı veriyi tarama/toplama amacıyla kullanmayı açıkça yasaklıyor. |
+| n8n, Bubble, Webflow, Discourse forumları | Elendi | Discourse'un standart şartı otomatik erişimi yasaklıyor (n8n'de doğrulandı). Gemini'nin Bubble (`/c/jobs/14.rss`) ve Webflow adresleri uydurma: biri 404, diğeri başka bir siteye yönleniyor. |
+| WordPress Jobs (`jobs.wordpress.net/feed/`) | Elendi | Çalışıyor ama beslemede 13 günde yalnızca 5 ilan var ve çoğunda "contract/freelance" ibaresi yok; kullanım şartı bulunamadı. |
+| r/PhotoshopRequest | Elendi | Günde ~200 gönderi, ücretli olanlar $5-20'lık fotoğraf düzeltmeleri; LLM kotasını yer, VIP değeri yok. |
+| BloggingPro Jobs, Freelance Writing Gigs | Elendi | Biri 403, diğeri bağlantıyı reddediyor. |
+| fl.ru, SAM.gov, UK Find a Tender, Meta Discourse Marketplace, Mandy, ProductionHUB | Alınmadı | Rusça pazaryeri; kamu ihalesi (serbest çalışana uygun değil); ya da güvenilir uç nokta ve taze ilan yok. |
+
+Çıkarım: herkese açık, anahtarsız ve şartları uygun kaynaklar büyük ölçüde tükendi. Hacim ve izin sorunu
+için gerçek çözüm resmî yollar: Freelancer.com resmî geliştirici API'si ve Upwork API başvurusu.
+
 **Resmî yoldan erişilebilecek ama başvuru/anahtar gerektirenler** (işletmecinin yapması gerekir):
 Upwork API (onaylı geliştirici başvurusu), Freelancer.com resmî geliştirici API'si (uygulama kaydı; yazılı
 izin sorununu da çözebilir), Adzuna / Jooble (ücretsiz anahtar, ağırlıklı kadrolu iş).
