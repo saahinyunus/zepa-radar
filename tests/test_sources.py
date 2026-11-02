@@ -2,6 +2,8 @@
 import time
 from datetime import datetime, timezone
 
+import pytest
+
 from src import config, scrapers
 from src.models import RawLead
 from src.scrapers.base_scraper import BaseScraper
@@ -62,6 +64,42 @@ def test_prefilter_needs_hiring_intent():
     assert not config.passes_prefilter("Bootstrapped SaaS at 180k ARR. How would you scale?", "we spent $5000 on a project")
     assert not config.passes_prefilter("[FOR HIRE] I edit videos")
     assert config.passes_prefilter("Senior platform engineer wanted", "", trusted_source=True)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "[ FOR HIRE ] Illustrator and character designer, Looking for work (DM me)",
+        "Title: [For Hire] Pixel art environments + UI + Godot dev + writer looking for an indie team",
+        "Video Editor [FOR HIRE] with 5 years of experience",
+        "Hello, I am an audio engineer/sound designer looking for immediate work",
+        "Beginner Editor looking for Work",
+        "Looking for clients - Social Media Content Creator & Marketing Specialist",
+        "I am looking for a client who needs video editing services",
+        "Looking for long-term opportunities as a Virtual Assistant",
+    ],
+)
+def test_prefilter_drops_freelancers_advertising_themselves(title):
+    assert not config.passes_prefilter(title)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "[HIRING] Long-form Gaming Editor | $100-150/Video",
+        "Looking for a developer to work on my project",
+        "Looking for a project manager for a SaaS launch",
+        "Looking for a video editor who can start immediately",
+        "Looking for work-from-home data entry help, $15/hour",
+        "[hiring] Looking for ongoing thumbnail designer - $30 per thumbnail",
+    ],
+)
+def test_prefilter_keeps_real_clients_that_say_looking_for(title):
+    assert config.passes_prefilter(title)
+
+
+def test_job_board_titles_are_not_judged_by_the_job_seeker_rule():
+    assert config.passes_prefilter("Contract designer - open to work across time zones", "", trusted_source=True)
 
 
 def hn_comment(thread, text):

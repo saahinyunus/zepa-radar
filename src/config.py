@@ -301,6 +301,8 @@ REDDIT_SUBREDDIT_GROUPS: dict[str, tuple[str, ...]] = {
         # Added after a probe: real hiring posts. One combined feed request covers all of them.
         "hiring", "gameDevJobs", "gamedevclassifieds", "RemoteJobs", "SEOjobs", "PythonJobs", "WebDevJobs",
         "HireaWriter",
+        # Probed 2 Nov 2026: clients hiring YouTube thumbnail designers ("[hiring] ... $30 per thumbnail").
+        "thumbnails",
     ),
     # Group 2 - software / SaaS / small-business clients
     "software_saas": (
@@ -461,22 +463,41 @@ NEGATIVE_PREFIXES = (
 
 MIN_TEXT_LENGTH = 20
 
+# Freelancers advertising themselves also say "looking for ..." and so pass HIRING_INTENT. Measured on
+# 1,639 stored leads: every title these rules reject had scored 10 or less and none reached VIP.
+_BRACKET_PADDING = re.compile(r"([\[(])\s+|\s+([\])])")
+_TITLE_LABEL = re.compile(r"^title:\s*")
+_FOR_HIRE_TAG = re.compile(r"[\[(]\s*for hire\s*[\])]")
+JOB_SEEKER_TITLE = re.compile(
+    r"\b(?:looking|searching|seeking|available) for "
+    r"(?:(?:an?|any|some|more|new|immediate|urgent|remote|part[- ]?time|full[- ]?time|freelance|paid"
+    r"|long[- ]?term|short[- ]?term|gig|editing|design|writing) )*"
+    r"(?:work|jobs?|gigs?|opportunit(?:y|ies)|clients?)\b(?![- ]?(?:from|on)\b)"
+    r"|\b(?:open|available) (?:for|to) (?:work|hire|freelance|commissions?)\b",
+    re.IGNORECASE,
+)
+
 
 def passes_prefilter(title: str, body: str = "", *, trusted_source: bool = False) -> bool:
     """Cheap rule-based gate applied before any LLM call.
 
-    * Titles starting with a NEGATIVE_PREFIXES entry are rejected outright.
+    * Titles starting with a NEGATIVE_PREFIXES entry, tagged "[for hire]" or worded like a
+      freelancer seeking work are rejected outright.
     * Entries from `trusted_source` boards (every item is a hiring post) pass
       without needing a positive signal.
     * Everything else must voice hiring intent (HIRING_INTENT) in the title or opening lines.
     """
     clean_title = (title or "").strip().lower().lstrip("*-_>~ \t")
+    # "[ FOR HIRE ]" and "Title: [For Hire] ..." must read like "[for hire] ...".
+    clean_title = _TITLE_LABEL.sub("", _BRACKET_PADDING.sub(lambda m: m.group(1) or m.group(2), clean_title))
     if len(clean_title) < MIN_TEXT_LENGTH // 2:
         return False
-    if clean_title.startswith(NEGATIVE_PREFIXES):
+    if clean_title.startswith(NEGATIVE_PREFIXES) or _FOR_HIRE_TAG.search(clean_title):
         return False
     if trusted_source:
         return True
+    if JOB_SEEKER_TITLE.search(clean_title):
+        return False
     opening = f"{clean_title}\n{(body or '')[:HIRING_INTENT_BODY_CHARS]}"
     return HIRING_INTENT.search(opening) is not None
 

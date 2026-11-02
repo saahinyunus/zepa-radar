@@ -60,6 +60,39 @@ topluluklar (Reddit) ve serbest çalışma pazaryerleri (Freelancer.com). Eklene
 | ProBlogger, JustRemote, Dynamite Jobs, Remote.co, 4dayweek, Remoteleaf | Elendi | Boş, 404 veya bozuk RSS. |
 | Upwork, Fiverr, PeoplePerHour, Guru, Truelancer, Workana | Alınmadı | Şartları tek tek okunmadı. Kamuya açık, anahtarsız bir ilan beslemesi bulunamadı; büyük pazaryerlerinin çoğu otomatik erişimi şartlarında yasaklar. Resmî API yolu için aşağıya bak. |
 
+## Gemini kaynak listesi incelemesi (2 Kasım 2026)
+
+"70+ kaynak" listesinin büyük kısmı zaten sistemdeydi ya da 31 Ekim'de denenip elenmişti. Her aday canlı
+ölçüldü (Reddit: her alt dizin tek tek RSS ile, gönderi sıklığı ve ön filtreyi geçen oran; diğerleri:
+erişim, tazelik, serbest çalışma oranı).
+
+| Aday | Karar | Neden |
+|---|---|---|
+| r/thumbnails | **Eklendi** (`direct_jobs`) | "[hiring] thumbnail designer $30 per thumbnail" türü gerçek ilanlar; gönderilerin ~%6'sı ön filtreyi geçiyor. |
+| r/freelance_forhire, r/hireafreelancer | Elendi | Bu adlarda topluluk yok (404). |
+| r/logorequests | Elendi | 403 (erişilemiyor). |
+| r/logodesign, r/UI_Design, r/web_design, r/Design, r/reactjs, r/python, r/androiddev, r/developersIndia, r/AppDevelopers, r/Freelancers, r/freelance, r/freelancewriters, r/ProgrammingBuddies | Elendi | Geri bildirim isteyen, öğrenen ya da serbest çalışanların kendi sohbeti; müşteri ilanı değil. Ön filtreyi geçenlerin neredeyse tamamı gürültü, LLM kotasını yer. |
+| r/artcommissions | Elendi (yine) | Gönderilerin ~%94'ü sanatçı ilanı; müşteri ilanları hobi siparişi (evcil hayvan çizimi, DnD karakteri, $15-75). |
+| Remotive | Kapalı kalıyor | Günde 4 sorgu ve 24 saat gecikme şartı; şimdi `limit=100` bile 12 ilan döndürüyor. |
+| Authentic Jobs | Elendi | Freelance beslemesi boş (0 ilan), uzaktan beslemesinin en yeni ilanı 18 günlük. |
+| Working Nomads | Elendi | RSS geçersiz XML; JSON API'de 35 ilan, en yenisi 3 günlük, başlık/etiketinde serbest çalışma geçen 1 ilan. |
+| WWR DevOps, Jobspresso | Elendi | Kadrolu iş (serbest çalışma oranı ~%0-5). |
+| Himalayas `/user-api/jobs` | Gerekmiyor | Bu adres 404; sistem zaten çalışan `himalayas.app/jobs/api`'yi kullanıyor. |
+| Jobicy `jobType=contract` | Gerekmiyor | Parametre artık geçersiz (400); mevcut sorgu çalışıyor ve filtrelemeyi biz yapıyoruz. |
+| HN `"looking for" OR "hiring" OR "freelancer"` | Yanlış | Algolia'da `OR` yok; sorgu sadece 52 anlamsız sonuç buluyor. Mevcut üç ayrı istek doğru yöntem. |
+| HN "Freelancer? Seeking freelancer?" | Bilgi | Bu aylık başlık Ekim 2025'ten beri açılmıyor; yalnızca "Who is hiring?" sürüyor. Ekim 2026 başlığında 261 ilandan 162'sini sorgularımız yakalıyor, kaçırdıkları arasında sözleşmeli/freelance geçen en fazla ayda ~9 ilan var; ayrı bir tarayıcıya değmez. |
+
+**Ön filtre iyileştirmesi.** Ölçüm sırasında iş arayan serbest çalışanların gönderileri ("looking for immediate
+work", "[ FOR HIRE ]", "Title: [For Hire] ...") ön filtreyi geçip LLM kotasını harcıyordu: `direct_jobs`
+akışında ön filtreyi geçen 28 gönderinin 4'ü bu türdendi. Başlıktaki "[for hire]" etiketi (boşluklu ya da
+"Title:" önekli hâlleri dahil) ve "looking/seeking for work, jobs, gigs, clients, opportunities" kalıpları
+artık eleniyor. Veritabanındaki 1.639 ilana uygulanınca elenecek 22 başlığın hepsi zaten 10 ve altında puan
+almıştı, hiçbiri VIP'ye gitmemişti. İş panosu ilanlarına bu kural uygulanmıyor.
+
+**Kota uyarısı.** Radar her çalıştırmada en yeni ilanlardan başlayarak en fazla 40 (fiilen Groq sınırıyla
+~18-20) ilanı LLM'e gönderiyor. Gürültülü bir kaynak eklemek iyi ilanları kota dışında bırakır; bu yüzden
+yukarıdaki listede gönderi sayısı değil, ön filtreyi geçen **müşteri** gönderisi oranı ölçüt alındı.
+
 **Resmî yoldan erişilebilecek ama başvuru/anahtar gerektirenler** (işletmecinin yapması gerekir):
 Upwork API (onaylı geliştirici başvurusu), Freelancer.com resmî geliştirici API'si (uygulama kaydı; yazılı
 izin sorununu da çözebilir), Adzuna / Jooble (ücretsiz anahtar, ağırlıklı kadrolu iş).

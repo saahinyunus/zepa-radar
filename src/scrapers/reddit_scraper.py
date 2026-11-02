@@ -26,6 +26,7 @@ SUBREDDIT_CATEGORY_HINTS = {
     "designjobs": config.CATEGORY_DESIGN,
     "graphic_design": config.CATEGORY_DESIGN,
     "hungryartists": config.CATEGORY_DESIGN,
+    "thumbnails": config.CATEGORY_DESIGN,
     "hireaneditor": config.CATEGORY_VIDEO,
     "videoediting": config.CATEGORY_VIDEO,
     "copywriting": config.CATEGORY_MARKETING_WRITING,

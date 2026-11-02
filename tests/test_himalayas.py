@@ -104,4 +104,5 @@ def test_reddit_direct_jobs_group_has_the_new_communities():
     group = config.REDDIT_GROUPS["direct_jobs"].lower().split("+")
     for sub in ("hiring", "gamedevjobs", "gamedevclassifieds", "remotejobs", "seojobs", "pythonjobs", "webdevjobs", "hireawriter"):
         assert sub in group
+    assert "thumbnails" in group  # clients hiring YouTube thumbnail designers
     assert "artcommissions" not in group  # all for-hire art posts, no clients
