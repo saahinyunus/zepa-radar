@@ -17,7 +17,7 @@ Kaynak kapalıyken diğer kaynaklar çalışmaya devam eder (`tests/test_sources
 
 | Kaynak | Nasıl erişiliyor | Şartların durumu | Durum |
 |---|---|---|---|
-| **Freelancer.com** | Herkese açık projeler API'si (`/api/projects/0.1/projects/active/`), anahtarsız, her çalıştırmada 1 istek | Kullanım şartları, "robot, örümcek, scraper veya başka otomatik yollarla" erişimi ve ilanları başka kaynaklarla birlikte toplamayı **yazılı izin olmadan yasaklıyor** (Bölüm 33 ve Bölüm 4, madde 11; özet üzerinden okundu, tam metin doğrulanmadı). İzin alınmadı. | **Riskli, açık.** İşletmeci bilerek açık tuttu; canlı satıştan önce yeniden karar verilecek. Kapatmak için `DISABLED_SOURCES=freelancer`. |
+| **Freelancer.com** | Herkese açık projeler API'si (`/api/projects/0.1/projects/active/`), anahtarsız, her çalıştırmada 1 istek | Kullanım şartları, "robot, örümcek, scraper veya başka otomatik yollarla" erişimi ve ilanları başka kaynaklarla birlikte toplamayı **yazılı izin olmadan yasaklıyor** (Bölüm 33 ve Bölüm 4, madde 11). Tam metin 2 Kasım 2026'da okundu (son ~6.000 karakter okunamadı): madde 4/11 "ilanları indirip başka sitelerin ilanlarıyla birlikte göstermeyi", Bölüm 33 "robot, örümcek, scraper ya da başka otomatik yolla, **API'ye erişim dahil**" erişimi, 33/3 ilan içeriğini kopyalayıp herkese açık göstermeyi "açık yazılı izin" olmadan yasaklıyor. Şartlarda API için ayrı bir istisna yok; geliştirici sitesinin (developers.freelancer.com) kendi şartları okunamadı. İzin alınmadı. | **Riskli, açık.** İşletmeci bilerek açık tuttu; canlı satıştan önce yeniden karar verilecek. Kapatmak için `DISABLED_SOURCES=freelancer`. |
 | **Jobicy** | Herkese açık JSON API | Ticari kullanım ve abonelik hizmetleri **açıkça serbest**; kaynağa atıf ve saatte en fazla bir otomatik sorgu şart. | Uyumlu. Sorgu saatte bir ile sınırlı (`HOURLY_BOARD_MINUTE_WINDOW`); ilan bağlantısı Jobicy sayfasına gidiyor. |
 | **RemoteOK** | Herkese açık JSON API | API şartları: bağlantıyla geri yönlendirme ve "Remote OK" kaynak olarak anılmalı. Logo izinsiz kullanılamaz. | Mesajda kaynak adı ve ilan bağlantısı var. Bağlantının `nofollow` olmaması gerekiyor mu: Telegram'da geçerli değil, doğrulanmadı. |
 | **We Work Remotely** | Herkese açık RSS | Doğrulanmadı. | Şartlar okunmalı. |
@@ -114,5 +114,5 @@ Her uç nokta kendi makinemizden canlı denendi. Sonuç: eklenecek kaynak yok.
 için gerçek çözüm resmî yollar: Freelancer.com resmî geliştirici API'si ve Upwork API başvurusu.
 
 **Resmî yoldan erişilebilecek ama başvuru/anahtar gerektirenler** (işletmecinin yapması gerekir):
-Upwork API (onaylı geliştirici başvurusu), Freelancer.com resmî geliştirici API'si (uygulama kaydı; yazılı
-izin sorununu da çözebilir), Adzuna / Jooble (ücretsiz anahtar, ağırlıklı kadrolu iş).
+Upwork API (onaylı geliştirici başvurusu), Freelancer.com resmî geliştirici API'si (uygulama kaydı; ana şartlar API erişimini de
+yazılı izne bağlıyor, yani tek başına izin sorununu çözmez; geliştirici API şartları okunmalı), Adzuna / Jooble (ücretsiz anahtar, ağırlıklı kadrolu iş).
