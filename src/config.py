@@ -104,9 +104,17 @@ if GROQ_FALLBACK_MODEL.lower() in {"none", "off", "disabled"}:
 # Stage 1 of the two-stage analysis: a cheap model rejects obvious non-leads so the
 # 70B model (small free daily token quota) only sees promising posts.
 # Set GROQ_TRIAGE_MODEL=none to disable triage and send everything to GROQ_MODEL.
-GROQ_TRIAGE_MODEL = _env_str("GROQ_TRIAGE_MODEL", "openai/gpt-oss-20b")
+# Every Groq model has its own daily token quota (200K on the free tier for the gpt-oss models).
+# Triage used to share gpt-oss-20b with the fallback of the main model and drained it by early
+# afternoon, which stopped the AI for the rest of the day. qwen3.8-27b has a separate quota, answers
+# in ~370 tokens (no reasoning) and kept every lead that finished at 45 or more in a 2 Nov 2026 check.
+GROQ_TRIAGE_MODEL = _env_str("GROQ_TRIAGE_MODEL", "qwen/qwen3.8-27b")
 if GROQ_TRIAGE_MODEL.lower() in {"none", "off", "disabled"}:
     GROQ_TRIAGE_MODEL = ""
+# Used when the triage model is down (HTTP 5xx / timeouts); Groq answered 503 "over capacity" to qwen in testing.
+GROQ_TRIAGE_FALLBACK_MODEL = _env_str("GROQ_TRIAGE_FALLBACK_MODEL", "openai/gpt-oss-20b")
+if GROQ_TRIAGE_FALLBACK_MODEL.lower() in {"none", "off", "disabled"}:
+    GROQ_TRIAGE_FALLBACK_MODEL = ""
 TRIAGE_MIN_SCORE = _env_int("TRIAGE_MIN_SCORE", 45)
 TRIAGE_MAX_INPUT_CHARS = 1200
 TRIAGE_MAX_OUTPUT_TOKENS = 250

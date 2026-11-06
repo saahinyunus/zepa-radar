@@ -182,15 +182,18 @@ class _ModelSlot:
     model: str
     fallback: str = ""
     exhausted: bool = False
+    # The last call failed because the model itself was unavailable (HTTP 5xx, timeout), not because of quota.
+    server_trouble: bool = False
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     remaining_tokens: int | None = None
     reset_at: float = 0.0
 
-    def switch_to_fallback(self) -> bool:
+    def switch_to_fallback(self, reason: str = "quota reached") -> bool:
         if not self.fallback:
             return False
-        logger.warning("Groq quota reached for %s - switching to %s", self.model, self.fallback)
+        logger.warning("Groq %s for %s - switching to %s", reason, self.model, self.fallback)
         self.model, self.fallback = self.fallback, ""
+        self.server_trouble = False
         self.remaining_tokens, self.reset_at = None, 0.0
         return True
 
@@ -221,6 +224,7 @@ class AIAnalyzer:
         model: str | None = None,
         fallback_model: str | None = None,
         triage_model: str | None = None,
+        triage_fallback_model: str | None = None,
         max_calls: int | None = None,
         concurrency: int | None = None,
         with_pitch: bool | None = None,
@@ -234,7 +238,12 @@ class AIAnalyzer:
         fallback = config.GROQ_FALLBACK_MODEL if fallback_model is None else fallback_model
         self._full = _ModelSlot(main_model, fallback if fallback and fallback != main_model else "")
         triage = config.GROQ_TRIAGE_MODEL if triage_model is None else triage_model
-        self._triage = _ModelSlot(triage) if triage else None
+        triage_fallback = config.GROQ_TRIAGE_FALLBACK_MODEL if triage_fallback_model is None else triage_fallback_model
+        self._triage = (
+            _ModelSlot(triage, triage_fallback if triage_fallback and triage_fallback != triage else "")
+            if triage
+            else None
+        )
 
         self.max_calls = config.MAX_AI_CALLS_PER_RUN if max_calls is None else max_calls
         self._semaphore = asyncio.Semaphore(concurrency or config.GROQ_CONCURRENCY)
@@ -393,15 +402,31 @@ class AIAnalyzer:
         max_tokens: int,
         expected_output: int = 300,
     ) -> dict[str, Any] | None:
+        data = await self._chat_once(slot, system_prompt, user_prompt, max_tokens, expected_output)
+        # The model itself is down (not out of quota): move this slot to its fallback and ask once more.
+        if data is None and slot.server_trouble and slot.switch_to_fallback("model unavailable"):
+            data = await self._chat_once(slot, system_prompt, user_prompt, max_tokens, expected_output)
+        return data
+
+    async def _chat_once(
+        self,
+        slot: _ModelSlot,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int,
+        expected_output: int = 300,
+    ) -> dict[str, Any] | None:
         client = self._ensure_client()
         estimate = int((len(system_prompt) + len(user_prompt)) / 3.5) + expected_output
         last_error = "unknown error"
         attempt = 0
         rate_waits = 0
+        outage = False
 
         # One call at a time per model: the per-minute token pool is shared anyway, and
         # serialising lets the limiter above see the real remaining tokens.
         async with slot.lock:
+            slot.server_trouble = False
             while attempt < config.HTTP_MAX_RETRIES:
                 if slot.exhausted:
                     return None
@@ -430,6 +455,7 @@ class AIAnalyzer:
                     )
                 except (httpx.TimeoutException, httpx.TransportError) as exc:
                     last_error = f"{type(exc).__name__}: {exc}"
+                    outage = True
                     logger.warning("Groq request error (attempt %d): %s", attempt + 1, last_error)
                 else:
                     slot.note_rate_limit_headers(response.headers)
@@ -472,6 +498,7 @@ class AIAnalyzer:
                         last_error = "model produced invalid JSON"
                     elif status in config.RETRYABLE_STATUS_CODES:
                         last_error = f"HTTP {status}"
+                        outage = outage or status >= 500
                         logger.warning("Groq HTTP %d (attempt %d)", status, attempt + 1)
                     else:
                         logger.error("Groq HTTP %d: %s", status, response.text[:300])
@@ -484,6 +511,7 @@ class AIAnalyzer:
                         return None
                     await asyncio.sleep(wait)
 
+            slot.server_trouble = outage
         logger.error("Groq call failed after %d attempts: %s", config.HTTP_MAX_RETRIES, last_error)
         return None
 
