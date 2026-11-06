@@ -118,9 +118,13 @@ if GROQ_TRIAGE_FALLBACK_MODEL.lower() in {"none", "off", "disabled"}:
 TRIAGE_MIN_SCORE = _env_int("TRIAGE_MIN_SCORE", 45)
 TRIAGE_MAX_INPUT_CHARS = 1200
 TRIAGE_MAX_OUTPUT_TOKENS = 250
-# Groq free tier (measured): 1000 requests/day and 8000 tokens/minute per model. A 429 that
-# clears within a minute is the token-per-minute limit: wait for it. A longer wait means
-# the daily request quota is gone.
+# Groq free tier (measured): 1000 requests/day and 8000 tokens/minute per model, plus 200K tokens/day
+# for the gpt-oss models (a rolling 24 h window, so quota freed by yesterday's usage returns hour by hour).
+# A 429 that clears within a minute is the token-per-minute limit: wait for it. A longer wait means
+# the daily quota is gone. Demand is ~100 full analyses (~2.5K tokens) plus ~250 triage calls per day,
+# so the two gpt-oss models cover the full analyses and triage runs on a third model (see below).
+# qwen3.8-27b is NOT used for the full analysis: on 8 stored leads it scored 0 and 42 where the
+# gpt-oss pipeline gave 62, so it could move leads across the VIP threshold.
 GROQ_MAX_WAIT_SECONDS = 65.0
 GROQ_MAX_OUTPUT_TOKENS = 1200
 AI_MAX_INPUT_CHARS = 2500
